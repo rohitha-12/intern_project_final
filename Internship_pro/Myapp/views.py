@@ -1,10 +1,13 @@
+import logging
 from django.http import JsonResponse
 from django.views import View
 from django.shortcuts import render, redirect
 from django.core.mail import send_mail
 from django.conf import settings
-from .models import CustomUser, EmailVerification, UserProfile,CompanyEmail,StripePayment
+from .models import CustomUser, EmailVerification,CompanyEmail,StripePayment
 from django.views.decorators.csrf import csrf_exempt
+from django.utils.decorators import method_decorator
+from django.http import HttpResponse
 from django.contrib.auth import authenticate, login, logout
 from django.utils import timezone
 from django.core.validators import validate_email
@@ -16,7 +19,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework import status
-from .serializers import UserProfileSerializer, StripePaymentSerializer
+from .serializers import CustomUserSerializer, StripePaymentSerializer
 # from django.contrib.auth.models import User
 from django.contrib.auth import get_user_model
 
@@ -28,6 +31,10 @@ import random
 import jwt
 import requests
 import datetime
+import stripe
+import os
+import pandas as pd
+
 # LinkedIn API configuration (unchanged)
 LINKEDIN_CLIENT_ID = '86ym363ssaf6tz'
 LINKEDIN_CLIENT_SECRET = 'WPL_AP1.P9uxAiGWy4DjSRYh.WIbjkw=='
@@ -44,6 +51,8 @@ token_secret = settings.SECRET_KEY
 
 User = get_user_model()
 
+stripe.api_key = settings.STRIPE_SECRET_KEY
+
 def generate_token(payload):
     return jwt.encode(payload, token_secret, algorithm="HS256")
 
@@ -53,11 +62,23 @@ def get_tokens_for_user(user):
         'refresh': str(refresh),
         'access': str(refresh.access_token),
     }
+def generate_username():
+    colors = ['Red', 'Blue', 'Green', 'Yellow', 'Purple', 'Orange', 'Pink', 'Black', 'White', 'Gray']
+    objects = ['Tiger', 'Rocket', 'Pencil', 'Laptop', 'Ball', 'Mountain', 'River', 'Car', 'Cloud', 'Phone']
+
+    while True:
+        color = random.choice(colors)
+        obj = random.choice(objects)
+        number = random.randint(0, 999)
+        username = f"{color}{obj}{number:03}"
+
+        if not User.objects.filter(username=username).exists():
+            return username
 
 @csrf_exempt
 def send_email_otp(request):
     """
-    Endpoint to send OTP to an email address for verification
+    Send OTP to user's email for verification
     """
     if request.method != 'POST':
         return JsonResponse({"status": "error", "message": "Only POST method allowed"}, status=405)
@@ -78,59 +99,35 @@ def send_email_otp(request):
                 "message": "Invalid email format"
             }, status=400)
         
-        # Check if user already exists in CustomUser table
+        # Check if user exists
         try:
             user = CustomUser.objects.get(email=email)
-            return JsonResponse({
-                "status": "error",
-                "message": "Email already registered. Please login.",
-                "is_registered": True
-            }, status=400)
-        except CustomUser.DoesNotExist:
-            # Continue with OTP process for new email
-            pass
-        
-        # Check EmailVerification table
-        try:
-            email_verification = EmailVerification.objects.get(email=email)
             
-            # Check if already verified and registered
-            if email_verification.is_verified and email_verification.is_registered:
+            # If email already verified
+            if user.email_verified:
                 return JsonResponse({
                     "status": "error",
-                    "message": "Email already registered. Please login.",
-                    "is_registered": True
+                    "message": "Email already verified. Please login.",
+                    "is_verified": True
                 }, status=400)
-                
-            # Check if verified but not registered
-            if email_verification.is_verified and not email_verification.is_registered:
-                return JsonResponse({
-                    "status": "success",
-                    "message": "Email already verified. You can complete registration.",
-                    "is_verified": True,
-                    "is_registered": False
-                })
-                
-            # Email exists but not verified - send a new OTP
+            
+            # Generate and save OTP
             otp = str(random.randint(100000, 999999))
-            email_verification.otp = otp
-            email_verification.created_at = timezone.now()
-            email_verification.save()
-        
-        except EmailVerification.DoesNotExist:
-            # New email - create record and send OTP
-            otp = str(random.randint(100000, 999999))
-            EmailVerification.objects.create(
-                email=email,
-                otp=otp,
-                is_verified=False,
-                is_registered=False
-            )
+            user.email_otp = otp
+            user.otp_created_at = timezone.now()
+            user.save()
+            
+        except CustomUser.DoesNotExist:
+            return JsonResponse({
+                "status": "error",
+                "message": "User not found. Please register first.",
+                "user_exists": False
+            }, status=400)
         
         # Send email with OTP
         subject = 'Your OTP Code for Email Verification'
         message = f'Hello, \n\n Thank you for registering with us. To complete your email verification, please use the following One-Time Password (OTP): \n\n Your OTP code is: {otp}\n\nThis code is valid for the next 10 minutes. Please do not share this code with anyone.\n\n If you did not request this, please ignore this email. \n\n Best regards,\n Your Company Name \n ExitElivate.'
-        send_mail(subject, message, settings.DEFAULT_FROM_EMAIL, [email], fail_silently=False)
+        send_mail(subject, message, settings.DEFAULT_FROM_EMAIL, ['anishsuman2305@gmail.com'], fail_silently=False)
         
         return JsonResponse({
             "status": "success",
@@ -145,7 +142,7 @@ def send_email_otp(request):
 @csrf_exempt
 def verify_email_otp(request):
     """
-    Endpoint to verify the OTP sent to email
+    Verify the OTP sent to email
     """
     if request.method != 'POST':
         return JsonResponse({"status": "error", "message": "Only POST method allowed"}, status=405)
@@ -159,22 +156,24 @@ def verify_email_otp(request):
             return JsonResponse({"status": "error", "message": "Email and OTP required"}, status=400)
             
         try:
-            email_verification = EmailVerification.objects.get(email=email)
-        except EmailVerification.DoesNotExist:
-            return JsonResponse({"status": "error", "message": "OTP not sent for this email"}, status=400)
+            user = CustomUser.objects.get(email=email)
+        except CustomUser.DoesNotExist:
+            return JsonResponse({"status": "error", "message": "User not found"}, status=400)
 
-        if email_verification.is_expired():
+        if user.is_otp_expired():
             return JsonResponse({"status": "error", "message": "OTP expired. Please request a new one."}, status=400)
 
-        # Compare OTPs as strings
-        if str(email_verification.otp) == str(otp_submitted):
-            # OTP valid - update verification status
-            email_verification.is_verified = True
-            email_verification.save()
+        # Compare OTPs
+        if str(user.email_otp) == str(otp_submitted):
+            # OTP valid - mark email as verified
+            user.email_verified = True
+            user.email_otp = None  # Clear OTP
+            user.otp_created_at = None
+            user.save()
             
             return JsonResponse({
                 "status": "success", 
-                "message": "Email verified successfully. You can now complete registration.",
+                "message": "Email verified successfully.",
                 "is_verified": True
             })
         else:
@@ -188,65 +187,33 @@ def verify_email_otp(request):
 @csrf_exempt
 def register(request):
     """
-    Registration endpoint that requires email verification first
+    Registration endpoint - creates user with email_verified=False and returns tokens
     """
     if request.method == 'POST':
         try:
             data = json.loads(request.body) if request.body else request.POST
             
             email = data.get('email')
-            username = data.get('username')
             password = data.get('password')
             full_name = data.get('full_name')
             phone_number = data.get('phone_number')
+            website_name = data.get('website_name')
             linkedin_token = data.get('linkedin_token', '')
-            no_linkedin = data.get('no_linkedin', 'false').lower() == 'true'
+            no_linkedin = data.get('no_linkedin', 'false') == 'true'
 
             # Check required fields
-            if not email or not username or not password:
+            if not email or not password or not full_name:
                 return JsonResponse({
                     "status": "error",
-                    "message": "Email, username, and password are required"
+                    "message": "Email, password, and full name are required"
                 }, status=400)
             
-            # First check if user already exists in CustomUser table
-            try:
-                existing_user = CustomUser.objects.get(email=email)
+            # Check if user already exists
+            if CustomUser.objects.filter(email=email).exists():
                 return JsonResponse({
                     "status": "error",
                     "message": "User with this email already exists",
-                    "is_registered": True
-                }, status=400)
-            except CustomUser.DoesNotExist:
-                # Continue with registration check
-                pass
-                
-            # Check EmailVerification table to ensure email is verified
-            try:
-                email_verification = EmailVerification.objects.get(email=email)
-                
-                # Check if already registered
-                if email_verification.is_registered:
-                    return JsonResponse({
-                        "status": "error",
-                        "message": "Email already registered. Please login.",
-                        "is_registered": True
-                    }, status=400)
-                
-                # Check if verified
-                if not email_verification.is_verified:
-                    return JsonResponse({
-                        "status": "error",
-                        "message": "Email not verified. Please verify your email first.",
-                        "is_verified": False
-                    }, status=400)
-                
-                # Email is verified and not registered - proceed with registration
-            except EmailVerification.DoesNotExist:
-                return JsonResponse({
-                    "status": "error",
-                    "message": "Email not verified. Please verify your email first.",
-                    "is_verified": False
+                    "user_exists": True
                 }, status=400)
             
             # LinkedIn URL handling (optional)
@@ -265,30 +232,25 @@ def register(request):
                     }, status=400)
             
             try:
-                # Create the user
+                # Create the user with email_verified=False
                 user = CustomUser.objects.create_user(
                     email=email,
-                    username=username,
                     password=password,
                     full_name=full_name,
                     phone_number=phone_number,
+                    website_name=website_name,
                     linkedin_url=linkedin_url,
                     no_linkedin=no_linkedin,
-                    email_verified=True  # Email is already verified
+                    email_verified=False  # Set to False initially
                 )
                 
-                # Update the EmailVerification record
-                email_verification.is_registered = True
-                email_verification.save()
-                
-                # Generate tokens for automatic login
+                # Generate tokens exactly like in login
                 tokens = get_tokens_for_user(user)
                 
                 return JsonResponse({
-                    "status": "success",
-                    "message": "Registration successful!",
-                    "is_registered": True,
-                    "tokens": tokens
+                    'status': 'success',
+                    'message': 'Registration successful! Please verify your email.',
+                    'tokens': tokens
                 }, status=201)
                 
             except Exception as e:
@@ -321,13 +283,13 @@ def login_view(request):
     if request.method == 'POST':
         try:
             data = json.loads(request.body) if request.body else request.POST
-            email = data.get('email')
+            identifier = data.get('identifier')  # username or email
             password = data.get('password')
 
-            if not email or not password:
-                return JsonResponse({'status': 'error', 'message': 'Email and password required'}, status=400)
+            if not identifier or not password:
+                return JsonResponse({'status': 'error', 'message': 'Username/email and password required'}, status=400)
 
-            user = authenticate(request, username=email, password=password)
+            user = authenticate(request, username=identifier, password=password)
 
             if user is not None:
                 tokens = get_tokens_for_user(user)
@@ -338,15 +300,16 @@ def login_view(request):
                 }, status=200)
             else:
                 return JsonResponse({'status': 'error', 'message': 'Invalid credentials'}, status=401)
+
         except json.JSONDecodeError:
             return JsonResponse({
-                "status": "error",
-                "message": "Invalid JSON format"
+                'status': 'error',
+                'message': 'Invalid JSON format'
             }, status=400)
         except Exception as e:
             return JsonResponse({
-                "status": "error",
-                "message": f"Server error: {str(e)}"
+                'status': 'error',
+                'message': f'Server error: {str(e)}'
             }, status=500)
 
     return JsonResponse({'status': 'error', 'message': 'Only POST method allowed'}, status=405)
@@ -354,7 +317,7 @@ def login_view(request):
 @csrf_exempt
 def check_email_status(request):
     """
-    Endpoint to check if an email is already verified or registered
+    Check if an email is registered and verified
     """
     if request.method != 'POST':
         return JsonResponse({"status": "error", "message": "Only POST method allowed"}, status=405)
@@ -366,51 +329,20 @@ def check_email_status(request):
         if not email:
             return JsonResponse({"status": "error", "message": "Email is required"}, status=400)
         
-        # First check CustomUser to see if already registered
         try:
             user = CustomUser.objects.get(email=email)
             return JsonResponse({
                 "status": "success", 
-                "is_registered": True,
-                "message": "Email already registered. Please login."
+                "user_exists": True,
+                "email_verified": user.email_verified,
+                "message": "Email already registered. Please login." if user.email_verified else "Email registered but not verified."
             })
         except CustomUser.DoesNotExist:
-            # Continue checking EmailVerification table
-            pass
-            
-        # Check EmailVerification table
-        try:
-            email_verification = EmailVerification.objects.get(email=email)
-            
-            if email_verification.is_verified and email_verification.is_registered:
-                return JsonResponse({
-                    "status": "success", 
-                    "is_registered": True,
-                    "is_verified": True,
-                    "message": "Email already registered. Please login."
-                })
-            elif email_verification.is_verified and not email_verification.is_registered:
-                return JsonResponse({
-                    "status": "success", 
-                    "is_registered": False,
-                    "is_verified": True,
-                    "message": "Email verified. You can complete registration."
-                })
-            else:
-                return JsonResponse({
-                    "status": "success", 
-                    "is_registered": False,
-                    "is_verified": False,
-                    "message": "Email not verified. Please verify your email."
-                })
-                
-        except EmailVerification.DoesNotExist:
-            # New email, never seen before
             return JsonResponse({
                 "status": "success", 
-                "is_registered": False,
-                "is_verified": False,
-                "message": "Email not verified. Please verify your email."
+                "user_exists": False,
+                "email_verified": False,
+                "message": "Email not registered."
             })
             
     except json.JSONDecodeError:
@@ -533,25 +465,74 @@ class UserProfileView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        profile, created = UserProfile.objects.get_or_create(user=request.user)
-        serializer = UserProfileSerializer(profile)
+        profile = request.user  # current logged in user instance
+        serializer = CustomUserSerializer(profile)
         data = serializer.data
-        data['username'] = request.user.username  # add username for frontend display
+        data['username'] = profile.username  # add username for frontend display
         return Response(data)
 
     def put(self, request):
-        profile, created = UserProfile.objects.get_or_create(user=request.user)
-        serializer = UserProfileSerializer(profile, data=request.data, partial=True)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        """
+        Update user profile with password verification
+        """
+        try:
+            profile = request.user
+            password = request.data.get('password')
+            
+            # Verify password first
+            if not password:
+                return Response({
+                    "status": "error", 
+                    "message": "Password is required for profile updates."
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Check if provided password is correct
+            if not profile.check_password(password):
+                return Response({
+                    "status": "error", 
+                    "message": "Invalid password. Please try again."
+                }, status=status.HTTP_401_UNAUTHORIZED)
+            
+            # Remove password from data before serialization
+            update_data = request.data.copy()
+            update_data.pop('password', None)
+            
+            # Update profile
+            serializer = CustomUserSerializer(profile, data=update_data, partial=True)
+            if serializer.is_valid():
+                serializer.save()
+                
+                logger.info(f"Profile updated successfully for user: {profile.email}")
+                
+                return Response({
+                    "status": "success",
+                    "message": "Profile updated successfully.",
+                    "data": serializer.data
+                }, status=status.HTTP_200_OK)
+            else:
+                return Response({
+                    "status": "error",
+                    "message": "Invalid data provided.",
+                    "errors": serializer.errors
+                }, status=status.HTTP_400_BAD_REQUEST)
+                
+        except Exception as e:
+            logger.error(f"Error updating profile for user {request.user.email}: {str(e)}")
+            return Response({
+                "status": "error",
+                "message": "An error occurred while updating profile. Please try again."
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 class ChangeUsernameView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        new_username = request.data.get('new_username')
+        username_color = request.data.get('username_color')
+        username_object = request.data.get('username_object')
+        username_num = request.data.get('username_num')
+        new_username = f"{username_color}{username_object}{username_num}"
+
         password = request.data.get('password')
 
         if not new_username or not password:
@@ -575,16 +556,58 @@ class ChangePasswordView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        user = request.user
-        current_password = request.data.get("current_password")
-        new_password = request.data.get("new_password")
+        try:
+            logger.info(f"Password change request from user: {request.user.email}")
+            
+            user = request.user
+            current_password = request.data.get("current_password")
+            new_password = request.data.get("new_password")
 
-        if not user.check_password(current_password):
-            return Response({"error": "Current password is incorrect."}, status=400)
+            # Validate required fields
+            if not current_password:
+                return Response({
+                    "error": "Current password is required."
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            if not new_password:
+                return Response({
+                    "error": "New password is required."
+                }, status=status.HTTP_400_BAD_REQUEST)
 
-        user.set_password(new_password)
-        user.save()
-        return Response({"message": "Password updated successfully."})
+            # Validate password length
+            if len(new_password) < 6:
+                return Response({
+                    "error": "New password must be at least 6 characters long."
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            # Check if current password is correct
+            if not user.check_password(current_password):
+                logger.warning(f"Invalid current password attempt for user: {user.email}")
+                return Response({
+                    "error": "Current password is incorrect."
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            # Check if new password is different from current password
+            if user.check_password(new_password):
+                return Response({
+                    "error": "New password must be different from current password."
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            # Update password
+            user.set_password(new_password)
+            user.save()
+            
+            logger.info(f"Password successfully changed for user: {user.email}")
+            
+            return Response({
+                "message": "Password updated successfully."
+            }, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            logger.error(f"Error changing password for user {request.user.email}: {str(e)}")
+            return Response({
+                "error": "An error occurred while changing password. Please try again."
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class ForgotPasswordSendOTP(APIView):
     def post(self, request):
@@ -604,7 +627,7 @@ class ForgotPasswordSendOTP(APIView):
             subject="Your OTP Code",
             message=f"Your OTP code is: {otp}",
             from_email="noreply@example.com",
-            recipient_list=[email],
+            recipient_list=['anishsuman2305@gmail.com'],
         )
 
         return Response({"message": "OTP sent to email."}, status=status.HTTP_200_OK)
@@ -652,40 +675,34 @@ class SendEmailOTPView(APIView):
     def post(self, request):
         email = request.data.get("email")
         user = request.user
+        
         if not email:
             return Response({"error": "Email is required."}, status=400)
-
-        if user.email and not CompanyEmail.objects.filter(user=user, email=user.email).exists():
-            CompanyEmail.objects.create(
-                user=user,
-                email=user.email,
-                is_primary=True,
-                verified=True  # assume verified since it's user.email
-            )
-
-        company_email_exists = CompanyEmail.objects.filter(user=user, email=email).exists()
-        if not company_email_exists:
-
-            # Add the new email
-            CompanyEmail.objects.create(
-                user=user,
-                email=email,
-                is_primary=False,
-                verified=False
-            )
-
+        
+        # Check if email already exists for this user
+        if CompanyEmail.objects.filter(user=user, email=email).exists():
+            return Response({"error": "Email already exists for this user."}, status=400)
+        
+        # Check if email is already used by another user
+        if User.objects.filter(email=email).exists() and user.email != email:
+            return Response({"error": "Email is already in use by another account."}, status=400)
+        
+        # Generate OTP
         otp = random.randint(100000, 999999)
-        cache.set(f"otp_{email}", otp, timeout=600)  # 10 minutes
-
+        cache.set(f"email_otp_{email}_{user.id}", otp, timeout=600)  # 10 minutes
+        
         # Send OTP via email
-        send_mail(
-            "Verify Your Email",
-            f"Your verification code is {otp}",
-            "no-reply@example.com",
-            [email]
-        )
-
-        return Response({"message": "OTP sent to email."})
+        try:
+            send_mail(
+                "Verify Your Email",
+                f"Your verification code is {otp}",
+                settings.DEFAULT_FROM_EMAIL,
+                ['anishsuman2305@gmail.com'],
+                fail_silently=False
+            )
+            return Response({"message": "OTP sent to email."})
+        except Exception as e:
+            return Response({"error": "Failed to send OTP. Please try again."}, status=500)
 
 class VerifyEmailOTPView(APIView):
     permission_classes = [IsAuthenticated]
@@ -693,25 +710,49 @@ class VerifyEmailOTPView(APIView):
     def post(self, request):
         email = request.data.get("email")
         otp = request.data.get("otp")
+        user = request.user
 
         if not email or not otp:
             return Response({"error": "Email and OTP are required."}, status=400)
 
-        cached_otp = cache.get(f"otp_{email}")
-        if str(cached_otp) != str(otp):
+        # Check cached OTP with user-specific key
+        cached_otp = cache.get(f"email_otp_{email}_{user.id}")
+        if not cached_otp or str(cached_otp) != str(otp):
             return Response({"error": "Invalid or expired OTP."}, status=400)
 
-        company_email, created = CompanyEmail.objects.update_or_create(
-            user=request.user,
-            email=email,
-            defaults={'verified': True}
-        )
-
-        return Response({
-            "message": "Email verified and saved.",
-            "email": company_email.email,
-            "verified": company_email.verified
-        })
+        # Create or update CompanyEmail only after successful verification
+        try:
+            # Ensure primary email exists
+            if user.email and not CompanyEmail.objects.filter(user=user, email=user.email).exists():
+                CompanyEmail.objects.create(
+                    user=user,
+                    email=user.email,
+                    is_primary=True,
+                    verified=True
+                )
+            
+            # Create the new verified email
+            company_email, created = CompanyEmail.objects.get_or_create(
+                user=user,
+                email=email,
+                defaults={'verified': True, 'is_primary': False}
+            )
+            
+            if not created:
+                company_email.verified = True
+                company_email.save()
+            
+            # Clear the OTP from cache
+            cache.delete(f"email_otp_{email}_{user.id}")
+            
+            return Response({
+                "message": "Email verified and added successfully.",
+                "email": company_email.email,
+                "verified": company_email.verified
+            })
+            
+        except Exception as e:
+            return Response({"error": "Failed to save email. Please try again."}, status=500)
 
 class ListCompanyEmailsView(APIView):
     permission_classes = [IsAuthenticated]
@@ -792,3 +833,174 @@ class RefundPaymentsView(APIView):
         serializer = StripePaymentSerializer(payments, many=True)
         return Response(serializer.data)
 
+def read_excel_sheet_by_name(request):
+    excel_path = os.path.join(settings.BASE_DIR, 'media', 'uploads', 'Statistics.xlsx')  # adjust path
+
+    try:
+        # Read the Excel sheet
+        df = pd.read_excel(excel_path, sheet_name="Categories of statistics", engine='openpyxl')
+
+        df['Research Topic'] = df['Research Topic'].ffill()
+
+        # Group by 'Research Topic' and compile statistics
+        grouped_data = (
+            df.groupby('Research Topic')['Statistics']
+            .apply(lambda x: [{"context": stat.strip()} for stat in x if pd.notna(stat)])
+            .reset_index()
+        )
+
+        # Format the output
+        result = [
+            {
+                "name": row['Research Topic'],
+                "category": "",
+                "statistics": row['Statistics']
+            }
+            for _, row in grouped_data.iterrows()
+        ]
+
+        return JsonResponse(result, safe=False)
+
+    except ValueError as ve:
+        return JsonResponse({'error': f'Error reading Excel sheet: {str(ve)}'}, status=400)
+
+    except Exception as e:
+        return JsonResponse({'error': f'Unexpected error: {str(e)}'}, status=500)
+
+#payment
+class CreateCheckoutSessionView(APIView):
+    def post(self, request):
+        try:
+            checkout_session = stripe.checkout.Session.create(
+                payment_method_types=['card'],
+                line_items=[{
+                    'price_data': {
+                        'currency': 'usd',
+                        'unit_amount': int(float(request.data['amount']) * 100),  # amount in cents
+                        'product_data': {
+                            'name': request.data['product_name'],
+                        },
+                    },
+                    'quantity': 1,
+                }],
+                mode='payment',
+                success_url=f"{settings.DOMAIN_URL}/payment-success?session_id={{CHECKOUT_SESSION_ID}}",
+                cancel_url=f"{settings.DOMAIN_URL}/payment-cancelled",
+            )
+            return Response({'sessionId': checkout_session.id})
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+
+@method_decorator(csrf_exempt, name='dispatch')
+class StripeWebhookView(APIView):
+    def post(self, request):
+        payload = request.body
+        sig_header = request.META.get('HTTP_STRIPE_SIGNATURE')
+        endpoint_secret = 'your_webhook_secret_here'
+
+        try:
+            event = stripe.Webhook.construct_event(
+                payload, sig_header, endpoint_secret
+            )
+        except stripe.error.SignatureVerificationError:
+            return HttpResponse(status=400)
+
+        if event['type'] == 'checkout.session.completed':
+            session = event['data']['object']
+
+            StripePayment.objects.create(
+                stripe_session_id=session['id'],
+                email=session.get('customer_email', ''),
+                amount=int(session['amount_total']) / 100,
+                currency=session['currency'],
+                status=session['payment_status']
+            )
+
+        return HttpResponse(status=200)
+logger = logging.getLogger(__name__)
+class ExtractUserDataFromHeaderView(APIView):
+    """
+    Extract user data from JWT token in Authorization header
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        try:
+            logger.info(f"ExtractUserDataFromHeaderView called by user: {request.user}")
+            
+            # Check if user is authenticated
+            if not request.user or not request.user.is_authenticated:
+                logger.warning("User is not authenticated")
+                return Response({
+                    "status": "error",
+                    "message": "User not authenticated"
+                }, status=status.HTTP_401_UNAUTHORIZED)
+            
+            user = request.user
+            logger.info(f"Authenticated user: {user.email if hasattr(user, 'email') else 'No email'}")
+            
+            # Check if CustomUserSerializer exists and works
+            try:
+                serializer = CustomUserSerializer(user)
+                user_data = serializer.data
+                logger.info("Serialization successful")
+            except Exception as serializer_error:
+                logger.error(f"Serialization error: {str(serializer_error)}")
+                # Fallback: manual serialization
+                user_data = {
+                    'id': user.id,
+                    'email': getattr(user, 'email', ''),
+                    'full_name': getattr(user, 'full_name', ''),
+                    'phone_number': getattr(user, 'phone_number', ''),
+                    'website_name': getattr(user, 'website_name', ''),
+                    'linkedin_url': getattr(user, 'linkedin_url', ''),
+                    'no_linkedin': getattr(user, 'no_linkedin', False),
+                    'email_verified': getattr(user, 'email_verified', False),
+                }
+            
+            # Add additional fields safely
+            additional_data = {}
+            
+            # Safely add username
+            if hasattr(user, 'username'):
+                additional_data['username'] = user.username
+            
+            # Safely add is_active
+            if hasattr(user, 'is_active'):
+                additional_data['is_active'] = user.is_active
+            
+            # Safely add date_joined
+            if hasattr(user, 'date_joined') and user.date_joined:
+                try:
+                    additional_data['date_joined'] = user.date_joined.isoformat()
+                except Exception as date_error:
+                    logger.warning(f"Error formatting date_joined: {str(date_error)}")
+                    additional_data['date_joined'] = str(user.date_joined)
+            
+            # Safely add last_login
+            if hasattr(user, 'last_login') and user.last_login:
+                try:
+                    additional_data['last_login'] = user.last_login.isoformat()
+                except Exception as date_error:
+                    logger.warning(f"Error formatting last_login: {str(date_error)}")
+                    additional_data['last_login'] = str(user.last_login)
+            
+            # Merge additional data
+            user_data.update(additional_data)
+            
+            logger.info("User data prepared successfully")
+            
+            return Response({
+                "status": "success",
+                "message": "User data extracted successfully",
+                "user_data": user_data
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            logger.error(f"Unexpected error in ExtractUserDataFromHeaderView: {str(e)}", exc_info=True)
+            return Response({
+                "status": "error", 
+                "message": f"Server error: {str(e)}"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

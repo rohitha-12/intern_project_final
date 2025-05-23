@@ -6,11 +6,21 @@ from django.core.exceptions import ValidationError
 from django.utils import timezone
 from datetime import timedelta
 from django.contrib.auth.models import User
+import time
 class CustomUserManager(BaseUserManager):
-    def create_user(self, email, username, password=None, **extra_fields):
+    def create_user(self, email, password=None, **extra_fields):
         if not email:
             raise ValueError('Email is required')
         email = self.normalize_email(email)
+        
+        # Generate random username using timestamp, fullname, and email
+        full_name = extra_fields.get('full_name', '')
+        timestamp = str(int(time.time()))
+        username_base = f"{full_name.replace(' ', '').lower()}{email.split('@')[0]}{timestamp}"
+        # Create a hash to make it shorter and more random
+        import hashlib
+        username = hashlib.md5(username_base.encode()).hexdigest()[:12]
+        
         user = self.model(email=email, username=username, **extra_fields)
         user.set_password(password)
         user.save(using=self._db)
@@ -23,7 +33,7 @@ class CustomUserManager(BaseUserManager):
 
 class CustomUser(AbstractBaseUser, PermissionsMixin):
     full_name = models.CharField(max_length=100)
-    username = models.CharField(max_length=50, unique=True)
+    username = models.CharField(max_length=50)
     email = models.EmailField(unique=True)
     phone_number = models.CharField(max_length=15)
     linkedin_url = models.URLField(blank=True, null=True)
@@ -32,6 +42,9 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     no_linkedin = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
+    website_name = models.CharField(max_length=200, blank=True, null=True)
+    email_otp = models.CharField(max_length=6, blank=True, null=True)
+    otp_created_at = models.DateTimeField(blank=True, null=True)
 
     objects = CustomUserManager()
 
@@ -40,6 +53,13 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
 
     def __str__(self):
         return self.email
+    
+    
+    def is_otp_expired(self):
+        if not self.otp_created_at:
+            return True
+        return timezone.now() > self.otp_created_at + timezone.timedelta(minutes=10)
+    
 
 class EmailOTP(models.Model):
     email = models.EmailField(unique=True)
@@ -70,18 +90,6 @@ class EmailVerification(models.Model):
         # OTP expires after 10 minutes
         return timezone.now() > self.created_at + timezone.timedelta(minutes=10)
 
-class UserProfile(models.Model):
-    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
-    full_name = models.CharField(max_length=100, blank=True)
-    phone_number = models.CharField(max_length=15, blank=True)
-    company_name = models.CharField(max_length=100, blank=True)
-    company_website = models.URLField(blank=True)
-    country = models.CharField(max_length=100, blank=True)
-    linkedin_url = models.URLField(blank=True)
-
-    def __str__(self):
-        return self.user.username
-
 class CompanyEmail(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='company_emails')
     email = models.EmailField(unique=True)
@@ -108,3 +116,5 @@ class StripePayment(models.Model):
 
     def __str__(self):
         return f"{self.email} - {self.amount} {self.currency} - {self.status}"
+
+

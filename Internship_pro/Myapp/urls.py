@@ -4,7 +4,7 @@ from rest_framework_simplejwt.views import (
     TokenObtainPairView,
     TokenRefreshView,
 )
-from .views import LinkedInAuthView, LinkedInCallbackView
+from .views import LinkedInAuthView, LinkedInCallbackView, ExtractUserDataFromHeaderView
 
 urlpatterns = [
     # Authentication paths
@@ -13,6 +13,7 @@ urlpatterns = [
     path('logout/', views.user_logout, name='logout'),
     path('token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    path('extract-user-data/', ExtractUserDataFromHeaderView.as_view(), name='extract-user-data'),
     
     # Email verification paths
     path('check_email_status/', views.check_email_status, name='check_email_status'),
@@ -32,18 +33,23 @@ urlpatterns = [
     path('profile/', views.UserProfileView.as_view(), name='user-profile'),
     path('change-username/', views.ChangeUsernameView.as_view(), name='change-username'),
     path('change-password/', views.ChangePasswordView.as_view(), name='change_password'),
-    path('forgot-password/', views.ForgotPasswordSendOTP.as_view(), name='forgot_password_send_otp'),
+    path('forgot-password-send-otp/', views.ForgotPasswordSendOTP.as_view(), name='forgot_password_send_otp'),
     path('verify-otp/', views.VerifyOTP.as_view(), name='verify_otp'),
     path('reset-password/', views.ResetPassword.as_view(), name='reset_password'),
-    path('add-email/', views.SendEmailOTPView.as_view(), name='add-email'),
-    path('verify-email/', views.VerifyEmailOTPView.as_view(), name='verify_email'),
-    path('list-emails/', views.ListCompanyEmailsView.as_view(), name='list-emails'),
-    path('set-primary/', views.SetPrimaryEmailView.as_view(), name='set-primary'),
-    path('remove-email/', views.RemoveEmailView.as_view(), name='remove-primary'),
+    path('list-company-emails/', views.ListCompanyEmailsView.as_view()),
+    path('send-email-otp/', views.SendEmailOTPView.as_view()),
+    path('verify-email-otp/', views.VerifyEmailOTPView.as_view()),
+    path('set-primary-email/', views.SetPrimaryEmailView.as_view()),
+    path('remove-email/', views.RemoveEmailView.as_view()),
 
     #payment history
     path('payment-history/', views.SuccessfulPaymentsView.as_view(), name='payment-history'),
     path('refund-history/', views.RefundPaymentsView.as_view(), name='refund-history'),
 
+    #category statistics
+    path('category-statistics/', views.read_excel_sheet_by_name, name='category-statistics'),
 
+    #payment
+    path('create-checkout-session/', views.CreateCheckoutSessionView.as_view(), name='create-checkout-session'),
+    path('webhook/', views.StripeWebhookView.as_view(), name='stripe-webhook'),
 ]

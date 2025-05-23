@@ -24,9 +24,9 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = 'django-insecure-$01^%&&y5)g#=4-!4v@$y8)6%t%jt=fos23c9)#7bd+m)0+8(x'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = False
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['*']
 
 
 # Application definition
@@ -164,7 +164,24 @@ REST_FRAMEWORK = {
     ),
 }
 
+AUTHENTICATION_BACKENDS = [
+    'Myapp.auth_backends.UsernameOrEmailBackend',
+    'django.contrib.auth.backends.ModelBackend',
+]
+
 LOGIN_REDIRECT_URL = '/settings/sections/'
 
 
+# Stripe settings
+STRIPE_SECRET_KEY = 'sk_test_51RPvxVGq7lR7zc6NS93Kbg2HGhe1rK273sM4CIV7YcM44mcYOoQfprlLh3xbxsXbXxVRdAAhWEPnSrf9jPyQcZus00GzpVgzwB'
+STRIPE_PUBLISHABLE_KEY = 'pk_test_51RPvxVGq7lR7zc6NwAd6VKBnrteOef9QOGEBwAdhmOYCdkB84JZ1C6X3MpddKym6jtVGGBvRlKS9dWV7tG2UtAYS00dZUM68Xv'
+DOMAIN_URL = 'http://localhost:8000'
+
+
+import os
+
+# Only in production:
+if 'RENDER' in os.environ:
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    DEBUG = False
 
