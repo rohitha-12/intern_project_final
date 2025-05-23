@@ -172,7 +172,6 @@ AUTHENTICATION_BACKENDS = [
 LOGIN_REDIRECT_URL = '/settings/sections/'
 
 
-# # Stripe settings
 DOMAIN_URL = 'http://localhost:8000'
 
 
