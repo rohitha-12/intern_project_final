@@ -1,6 +1,0 @@
-<h2>Enter OTP sent to {{ form.initial.phone_number }}</h2>
-<form method="post">
-  {% csrf_token %}
-  {{ form.as_p }}
-  <button type="submit">Verify OTP</button>
-</form>
