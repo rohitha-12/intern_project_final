@@ -173,8 +173,6 @@ LOGIN_REDIRECT_URL = '/settings/sections/'
 
 
 # # Stripe settings
-# STRIPE_SECRET_KEY = 'sk_test_51RPvxVGq7lR7zc6NS93Kbg2HGhe1rK273sM4CIV7YcM44mcYOoQfprlLh3xbxsXbXxVRdAAhWEPnSrf9jPyQcZus00GzpVgzwB'
-# STRIPE_PUBLISHABLE_KEY = 'pk_test_51RPvxVGq7lR7zc6NwAd6VKBnrteOef9QOGEBwAdhmOYCdkB84JZ1C6X3MpddKym6jtVGGBvRlKS9dWV7tG2UtAYS00dZUM68Xv'
 DOMAIN_URL = 'http://localhost:8000'
 
 
