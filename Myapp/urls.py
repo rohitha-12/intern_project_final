@@ -52,4 +52,10 @@ urlpatterns = [
     #payment
     path('create-checkout-session/', views.CreateCheckoutSessionView.as_view(), name='create-checkout-session'),
     path('webhook/', views.StripeWebhookView.as_view(), name='stripe-webhook'),
+
+    # Stripe Payment URLs
+    path('create-checkout-session/', views.CreateCheckoutSessionView.as_view(), name='create-checkout-session'),
+    path('stripe-webhook/', views.StripeWebhookView.as_view(), name='stripe-webhook'),
+    path('payment-status/', views.PaymentStatusView.as_view(), name='payment-status'),
+    path('user-payments/', views.UserPaymentsView.as_view(), name='user-payments'),
 ]

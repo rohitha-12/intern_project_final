@@ -120,6 +120,7 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = 'static/'
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
@@ -131,9 +132,9 @@ EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 EMAIL_HOST = 'smtp.gmail.com'
 EMAIL_PORT = 587
 EMAIL_USE_TLS = True
-EMAIL_HOST_USER = 'vnirali261997@gmail.com' #this uses company smtp mail id
-EMAIL_HOST_PASSWORD = 'qiajgkbolbdqcets' #this uses company smtp app password
-DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
+EMAIL_HOST_USER = 'anishsuman2305@gmail.com' #this uses company smtp mail id
+EMAIL_HOST_PASSWORD = 'krcq wwum uyuc jhdu' #this uses company smtp app password
+DEFAULT_FROM_EMAIL = 'noreply@gmail.com'
 
 AUTH_USER_MODEL = 'Myapp.CustomUser'
 
@@ -178,4 +179,18 @@ STRIPE_PUBLISHABLE_KEY = 'pk_test_51RPvxVGq7lR7zc6NwAd6VKBnrteOef9QOGEBwAdhmOYCd
 DOMAIN_URL = 'http://localhost:8000'
 
 
+from decouple import config  # Optional: for environment variables
 
+# Stripe Configuration
+STRIPE_PUBLIC_KEY = config(STRIPE_PUBLISHABLE_KEY, default='')
+STRIPE_SECRET_KEY = config(STRIPE_SECRET_KEY, default='')
+STRIPE_WEBHOOK_SECRET = config('STRIPE_WEBHOOK_SECRET', default='')
+
+# Frontend URL for redirects
+FRONTEND_URL = config('FRONTEND_URL', default='http://localhost:8080')
+
+# Domain URL for webhooks
+DOMAIN_URL = config('DOMAIN_URL', default='http://localhost:8000')
+
+# Email settings (if not already configured)
+DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='noreply@yoursite.com')

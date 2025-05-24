@@ -116,5 +116,49 @@ class StripePayment(models.Model):
 
     def __str__(self):
         return f"{self.email} - {self.amount} {self.currency} - {self.status}"
+    
+from django.contrib.auth import get_user_model
 
+User = get_user_model()
 
+class StripePayment(models.Model):
+    PAYMENT_STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('completed', 'Completed'),
+        ('succeeded', 'Succeeded'),
+        ('failed', 'Failed'),
+        ('cancelled', 'Cancelled'),
+        ('refunded', 'Refunded'),
+    ]
+    
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='stripe_payments')
+    stripe_session_id = models.CharField(max_length=255, unique=True)
+    stripe_payment_intent_id = models.CharField(max_length=255, blank=True, null=True)
+    email = models.EmailField()
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    currency = models.CharField(max_length=3, default='usd')
+    status = models.CharField(max_length=20, choices=PAYMENT_STATUS_CHOICES, default='pending')
+    customer_name = models.CharField(max_length=255, blank=True, null=True)
+    company_name = models.CharField(max_length=255, blank=True, null=True)
+    product_name = models.CharField(max_length=255, blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = 'stripe_payments'
+        ordering = ['-created_at']
+        verbose_name = 'Stripe Payment'
+        verbose_name_plural = 'Stripe Payments'
+    
+    def __str__(self):
+        return f"{self.customer_name} - ${self.amount} ({self.status})"
+    
+    @property
+    def amount_in_cents(self):
+        """Convert amount to cents for Stripe API"""
+        return int(self.amount * 100)
+    
+    @property
+    def is_successful(self):
+        """Check if payment was successful"""
+        return self.status in ['completed', 'succeeded']

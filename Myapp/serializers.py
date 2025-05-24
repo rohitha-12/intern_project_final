@@ -39,3 +39,25 @@ class StripePaymentSerializer(serializers.ModelSerializer):
     class Meta:
         model = StripePayment
         fields = ['id', 'user', 'email', 'amount', 'currency', 'status', 'created_at']
+
+from rest_framework import serializers
+from .models import StripePayment
+
+class StripePaymentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = StripePayment
+        fields = [
+            'id', 'stripe_session_id', 'stripe_payment_intent_id', 
+            'email', 'amount', 'currency', 'status', 'customer_name', 
+            'company_name', 'product_name', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+    
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        # Format dates for better frontend consumption
+        if data.get('created_at'):
+            data['created_at'] = instance.created_at.strftime('%Y-%m-%d %H:%M:%S')
+        if data.get('updated_at'):
+            data['updated_at'] = instance.updated_at.strftime('%Y-%m-%d %H:%M:%S')
+        return data
