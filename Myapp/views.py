@@ -34,6 +34,8 @@ import datetime
 import stripe
 import os
 import pandas as pd
+from .models import VimeoVideo
+from .utils import fetch_public_vimeo_video, fetch_unlisted_vimeo_video
 
 # LinkedIn API configuration (unchanged)
 LINKEDIN_CLIENT_ID = '86ym363ssaf6tz'
@@ -1253,3 +1255,25 @@ class UserPaymentsView(APIView):
         return Response({
             'payments': payment_data
         })
+    
+class FetchPublicVideoView(APIView):
+    def get(self, request, video_id):
+        video = fetch_public_vimeo_video(video_id)
+        if "error" in video:
+            return Response({"error": video["error"]}, status=400)
+        # Save video URL to the database
+        VimeoVideo.objects.update_or_create(
+            video_id=video_id, defaults={"video_url": video["video_url"], "is_public": True}
+        )
+        return Response(video)
+
+class FetchUnlistedVideoView(APIView):
+    def get(self, request, video_id):
+        video = fetch_unlisted_vimeo_video(video_id)
+        if "error" in video:
+            return Response({"error": video["error"]}, status=400)
+        # Save video URL to the database
+        VimeoVideo.objects.update_or_create(
+            video_id=video_id, defaults={"video_url": video["video_url"], "is_public": False}
+        )
+        return Response(video)

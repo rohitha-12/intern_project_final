@@ -162,3 +162,13 @@ class StripePayment(models.Model):
     def is_successful(self):
         """Check if payment was successful"""
         return self.status in ['completed', 'succeeded']
+
+
+class VimeoVideo(models.Model):
+    video_id = models.CharField(max_length=255, unique=True)
+    video_url = models.URLField()
+    is_public = models.BooleanField()
+    fetched_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.video_id

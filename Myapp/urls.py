@@ -1,5 +1,6 @@
 from django.urls import path, include
 from . import views
+from .views import FetchPublicVideoView, FetchUnlistedVideoView
 from rest_framework_simplejwt.views import (
     TokenObtainPairView,
     TokenRefreshView,
@@ -58,4 +59,8 @@ urlpatterns = [
     path('stripe-webhook/', views.StripeWebhookView.as_view(), name='stripe-webhook'),
     path('payment-status/', views.PaymentStatusView.as_view(), name='payment-status'),
     path('user-payments/', views.UserPaymentsView.as_view(), name='user-payments'),
+
+    #vimeo URLs
+    path('videos/public/<str:video_id>/', FetchPublicVideoView.as_view(), name='fetch-public-video'),
+    path('videos/unlisted/<str:video_id>/', FetchUnlistedVideoView.as_view(), name='fetch-unlisted-video'),
 ]

@@ -194,3 +194,8 @@ DOMAIN_URL = config('DOMAIN_URL', default='http://localhost:8000')
 
 # Email settings (if not already configured)
 DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='noreply@yoursite.com')
+
+# Vimeo API settings
+VIMEO_ACCESS_TOKEN = config('VIMEO_ACCESS_TOKEN')
+#place the access token in .env file
+#VIMEO_ACCESS_TOKEN=your_vimeo_oauth_key in .env file
