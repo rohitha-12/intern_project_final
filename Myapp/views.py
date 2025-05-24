@@ -125,7 +125,7 @@ def send_email_otp(request):
         # Send email with OTP
         subject = 'Your OTP Code for Email Verification'
         message = f'Hello, \n\n Thank you for registering with us. To complete your email verification, please use the following One-Time Password (OTP): \n\n Your OTP code is: {otp}\n\nThis code is valid for the next 10 minutes. Please do not share this code with anyone.\n\n If you did not request this, please ignore this email. \n\n Best regards,\n Your Company Name \n ExitElivate.'
-        send_mail(subject, message, settings.DEFAULT_FROM_EMAIL, ['anishsuman2305@gmail.com'], fail_silently=False)
+        send_mail(subject, message, settings.DEFAULT_FROM_EMAIL, [email], fail_silently=False)
         
         return JsonResponse({
             "status": "success",
@@ -625,7 +625,7 @@ class ForgotPasswordSendOTP(APIView):
             subject="Your OTP Code",
             message=f"Your OTP code is: {otp}",
             from_email="noreply@example.com",
-            recipient_list=['anishsuman2305@gmail.com'],
+            recipient_list=[email],
         )
 
         return Response({"message": "OTP sent to email."}, status=status.HTTP_200_OK)
@@ -695,7 +695,7 @@ class SendEmailOTPView(APIView):
                 "Verify Your Email",
                 f"Your verification code is {otp}",
                 settings.DEFAULT_FROM_EMAIL,
-                ['anishsuman2305@gmail.com'],
+                [email],
                 fail_silently=False
             )
             return Response({"message": "OTP sent to email."})
