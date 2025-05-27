@@ -921,8 +921,8 @@ class CreateCheckoutSessionView(APIView):
                     'quantity': 1,
                 }],
                 mode='payment',
-                success_url=f"{settings.DOMAIN_URL}/payment-success?session_id={{CHECKOUT_SESSION_ID}}",
-                cancel_url=f"{settings.DOMAIN_URL}/payment-cancelled",
+                success_url=f"{getattr(settings, 'FRONTEND_URL', 'http://localhost:8080')}/payment-success?session_id={{CHECKOUT_SESSION_ID}}",
+cancel_url=f"{getattr(settings, 'FRONTEND_URL', 'http://localhost:8080')}/payment-cancelled",
             )
             return Response({'sessionId': checkout_session.id})
         except Exception as e:
