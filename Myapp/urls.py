@@ -49,6 +49,7 @@ urlpatterns = [
 
     #category statistics
     path('category-statistics/', views.read_excel_sheet_by_name, name='category-statistics'),
+    path('category-list/', views.get_category_list, name='category-list'),
 
     #payment
     path('create-checkout-session/', views.CreateCheckoutSessionView.as_view(), name='create-checkout-session'),

@@ -18,7 +18,7 @@ from django.contrib.auth.decorators import login_required
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
-from rest_framework import status
+from rest_framework import status, permissions
 from .serializers import CustomUserSerializer, StripePaymentSerializer
 # from django.contrib.auth.models import User
 from django.contrib.auth import get_user_model
@@ -610,6 +610,7 @@ class ChangePasswordView(APIView):
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class ForgotPasswordSendOTP(APIView):
+    permission_classes = [permissions.AllowAny]
     def post(self, request):
         email = request.data.get('email')
         if not email:
@@ -633,6 +634,7 @@ class ForgotPasswordSendOTP(APIView):
         return Response({"message": "OTP sent to email."}, status=status.HTTP_200_OK)
 
 class VerifyOTP(APIView):
+    permission_classes = [permissions.AllowAny]
     def post(self, request):
         email = request.data.get('email')
         otp = request.data.get('otp')
@@ -649,6 +651,7 @@ class VerifyOTP(APIView):
         return Response({"message": "OTP verified successfully."})
 
 class ResetPassword(APIView):
+    permission_classes = [permissions.AllowAny]
     def post(self, request):
         email = request.data.get('email')
         new_password = request.data.get('new_password')
@@ -833,36 +836,64 @@ class RefundPaymentsView(APIView):
         serializer = StripePaymentSerializer(payments, many=True)
         return Response(serializer.data)
 
+@csrf_exempt
 def read_excel_sheet_by_name(request):
-    excel_path = os.path.join(settings.BASE_DIR, 'media', 'uploads', 'Statistics.xlsx')  # adjust path
+    excel_path = os.path.join(settings.BASE_DIR, 'media', 'uploads', 'Statistics.xlsx')
 
     try:
-        # Read the Excel sheet
+        filter_category = request.GET.get('category', None)
+
         df = pd.read_excel(excel_path, sheet_name="Categories of statistics", engine='openpyxl')
 
         df['Research Topic'] = df['Research Topic'].ffill()
+        df = df[df['Statistics'].notna() & (df['Statistics'].str.strip() != '')]
 
-        # Group by 'Research Topic' and compile statistics
-        grouped_data = (
-            df.groupby('Research Topic')['Statistics']
-            .apply(lambda x: [{"context": stat.strip()} for stat in x if pd.notna(stat)])
-            .reset_index()
-        )
+        if filter_category:
+            df = df[df['Master Category'] == filter_category]
 
-        # Format the output
-        result = [
-            {
-                "name": row['Research Topic'],
-                "category": "",
-                "statistics": row['Statistics']
-            }
-            for _, row in grouped_data.iterrows()
-        ]
+        result = []
+
+        for category, cat_group in df.groupby('Master Category'):
+
+            research_points = []
+            for topic, topic_group in cat_group.groupby('Research Topic'):
+                stats_list = []
+                for _, row in topic_group.iterrows():
+                    stat_text = row['Statistics'].strip()
+                    stat_url = row['URL Link'] if 'URL Link' in row and pd.notna(row['URL Link']) else ""
+                    stats_list.append({
+                        "context": stat_text,
+                        "url": stat_url
+                    })
+
+                research_points.append({
+                    "name": topic,
+                    "statistics": stats_list
+                })
+
+            result.append({
+                "category": category,
+                "research_points": research_points
+            })
 
         return JsonResponse(result, safe=False)
 
-    except ValueError as ve:
-        return JsonResponse({'error': f'Error reading Excel sheet: {str(ve)}'}, status=400)
+    except Exception as e:
+        return JsonResponse({'error': f'Unexpected error: {str(e)}'}, status=500)
+
+@csrf_exempt
+def get_category_list(request):
+    excel_path = os.path.join(settings.BASE_DIR, 'media', 'uploads', 'Statistics.xlsx')
+
+    try:
+        df = pd.read_excel(excel_path, sheet_name="Categories of statistics", engine='openpyxl')
+
+        if 'Master Category' not in df.columns:
+            return JsonResponse({'error': "'Master Category' column not found in Excel sheet."}, status=400)
+
+        categories = df['Master Category'].ffill().dropna().unique().tolist()
+
+        return JsonResponse(categories, safe=False)
 
     except Exception as e:
         return JsonResponse({'error': f'Unexpected error: {str(e)}'}, status=500)
@@ -1157,6 +1188,11 @@ class StripeWebhookView(View):
             )
             payment.status = 'succeeded'
             payment.save()
+
+            user = payment.user
+            user.paid = True
+            user.save()
+
             
             logger.info(f"Payment intent succeeded: {payment_intent['id']}")
             
@@ -1174,6 +1210,10 @@ class StripeWebhookView(View):
             )
             payment.status = 'failed'
             payment.save()
+
+            user = payment.user
+            user.paid = False
+            user.save()
             
             logger.info(f"Payment intent failed: {payment_intent['id']}")
             

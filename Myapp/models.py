@@ -40,6 +40,7 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     linkedin_verified = models.BooleanField(default=False)
     email_verified = models.BooleanField(default=False)
     no_linkedin = models.BooleanField(default=False)
+    paid = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
     website_name = models.CharField(max_length=200, blank=True, null=True)
