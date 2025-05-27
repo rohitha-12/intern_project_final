@@ -1,3 +1,4 @@
+import random
 from django.conf import settings
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.db import models
@@ -8,18 +9,51 @@ from datetime import timedelta
 from django.contrib.auth.models import User
 import time
 class CustomUserManager(BaseUserManager):
+    COLOR_OPTIONS = [
+        'Red', 'Blue', 'Green', 'Yellow', 'Purple', 'Orange', 'Pink', 'Black', 
+        'White', 'Gray', 'Brown', 'Cyan', 'Magenta', 'Lime', 'Indigo', 'Violet'
+    ]
+    
+    OBJECT_OPTIONS = [
+        'Cat', 'Dog', 'Bird', 'Fish', 'Tree', 'Star', 'Moon', 'Sun', 'Car', 'Book',
+        'Phone', 'House', 'Flower', 'Rock', 'Cloud', 'Fire', 'Water', 'Mountain',
+        'Ocean', 'River', 'Forest', 'Garden', 'Bridge', 'Tower', 'Castle', 'Ship'
+    ]
+    
+    def generate_unique_username(self, max_attempts=50):
+        """
+        Generate a unique username in the format: ColorObjectNumber
+        e.g., RedCat123, BlueStar456
+        """
+        for attempt in range(max_attempts):
+            # Randomly select color and object
+            color = random.choice(self.COLOR_OPTIONS)
+            obj = random.choice(self.OBJECT_OPTIONS)
+            
+            # Generate random number between 1 and 9999
+            number = random.randint(1, 9999)
+            
+            # Create username
+            username = f"{color}{obj}{number}"
+            
+            # Check if username already exists
+            if not self.model.objects.filter(username=username).exists():
+                return username
+        
+        # Fallback: if we can't generate a unique username after max_attempts,
+        # add timestamp to ensure uniqueness
+        color = random.choice(self.COLOR_OPTIONS)
+        obj = random.choice(self.OBJECT_OPTIONS)
+        timestamp = str(int(time.time()))[-4:]  # Last 4 digits of timestamp
+        return f"{color}{obj}{timestamp}"
+    
     def create_user(self, email, password=None, **extra_fields):
         if not email:
             raise ValueError('Email is required')
         email = self.normalize_email(email)
         
-        # Generate random username using timestamp, fullname, and email
-        full_name = extra_fields.get('full_name', '')
-        timestamp = str(int(time.time()))
-        username_base = f"{full_name.replace(' ', '').lower()}{email.split('@')[0]}{timestamp}"
-        # Create a hash to make it shorter and more random
-        import hashlib
-        username = hashlib.md5(username_base.encode()).hexdigest()[:12]
+        # Generate username in the same format as frontend
+        username = self.generate_unique_username()
         
         user = self.model(email=email, username=username, **extra_fields)
         user.set_password(password)
