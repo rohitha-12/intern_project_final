@@ -1374,3 +1374,218 @@ def save_coi_form(request):
             "status": "error",
             "message": "Only POST requests allowed"
         }, status=405)
+    
+class ProcessPaymentView(APIView):
+    """
+    Process payment directly using payment method details
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        try:
+            # Get data from request
+            amount = request.data.get('amount', 2999)
+            product_name = request.data.get('product_name', 'Premium Plan')
+            billing_info = request.data.get('billing_info', {})
+            payment_method_data = request.data.get('payment_method', {})
+            currency = request.data.get('currency', 'usd')
+            
+            # Validate required fields
+            if not billing_info.get('fullName') or not billing_info.get('email'):
+                return Response({
+                    'error': 'Full name and email are required in billing_info'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            if not payment_method_data:
+                return Response({
+                    'error': 'Payment method data is required'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Create customer if doesn't exist
+            customer = None
+            try:
+                # Try to find existing customer
+                customers = stripe.Customer.list(email=billing_info.get('email'), limit=1)
+                if customers.data:
+                    customer = customers.data[0]
+                else:
+                    # Create new customer
+                    customer = stripe.Customer.create(
+                        email=billing_info.get('email'),
+                        name=billing_info.get('fullName'),
+                        metadata={
+                            'user_id': str(request.user.id),
+                            'company_name': billing_info.get('companyName', '')
+                        }
+                    )
+            except stripe.error.StripeError as e:
+                logger.error(f"Error creating/finding customer: {str(e)}")
+                return Response({
+                    'error': 'Error processing customer information'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Create payment method
+            try:
+                payment_method = stripe.PaymentMethod.create(**payment_method_data)
+                
+                # Attach payment method to customer
+                payment_method.attach(customer=customer.id)
+                
+            except stripe.error.StripeError as e:
+                logger.error(f"Error creating payment method: {str(e)}")
+                return Response({
+                    'error': f'Invalid payment method: {str(e)}'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Create payment intent
+            try:
+                payment_intent = stripe.PaymentIntent.create(
+                    amount=int(amount),  # amount in cents
+                    currency=currency,
+                    customer=customer.id,
+                    payment_method=payment_method.id,
+                    description=f'{product_name} for {billing_info.get("fullName")}',
+                    confirm=True,  # Immediately attempt to confirm
+                    return_url=f"{getattr(settings, 'FRONTEND_URL', 'http://localhost:3000')}/payment-success",
+                    metadata={
+                        'user_id': str(request.user.id),
+                        'customer_name': billing_info.get('fullName'),
+                        'company_name': billing_info.get('companyName', ''),
+                        'product_name': product_name
+                    }
+                )
+                
+                # Create payment record in database
+                payment_record = StripePayment.objects.create(
+                    user=request.user,
+                    stripe_payment_intent_id=payment_intent.id,
+                    email=billing_info.get('email'),
+                    amount=float(amount) / 100,
+                    currency=currency,
+                    status='processing',
+                    customer_name=billing_info.get('fullName'),
+                    company_name=billing_info.get('companyName', ''),
+                    product_name=product_name
+                )
+                
+                logger.info(f"Payment intent created: {payment_intent.id} for user: {request.user.id}")
+                
+                # Handle different payment intent statuses
+                if payment_intent.status == 'succeeded':
+                    payment_record.status = 'completed'
+                    payment_record.save()
+                    
+                    # Update user's paid status
+                    request.user.paid = True
+                    request.user.save()
+                    
+                    return Response({
+                        'status': 'succeeded',
+                        'payment_intent_id': payment_intent.id,
+                        'message': 'Payment completed successfully'
+                    })
+                    
+                elif payment_intent.status == 'requires_action':
+                    return Response({
+                        'status': 'requires_action',
+                        'requires_action': True,
+                        'payment_intent_id': payment_intent.id,
+                        'client_secret': payment_intent.client_secret,
+                        'next_action': payment_intent.next_action
+                    })
+                    
+                elif payment_intent.status == 'requires_payment_method':
+                    payment_record.status = 'failed'
+                    payment_record.save()
+                    return Response({
+                        'error': 'Payment method declined. Please try a different payment method.'
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                    
+                else:
+                    payment_record.status = 'failed'
+                    payment_record.save()
+                    return Response({
+                        'error': 'Payment processing failed. Please try again.'
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                
+            except stripe.error.CardError as e:
+                # Card was declined
+                logger.error(f"Card declined: {str(e)}")
+                return Response({
+                    'error': f'Payment declined: {e.user_message or str(e)}'
+                }, status=status.HTTP_400_BAD_REQUEST)
+                
+            except stripe.error.StripeError as e:
+                logger.error(f"Stripe error: {str(e)}")
+                return Response({
+                    'error': f'Payment processing error: {str(e)}'
+                }, status=status.HTTP_400_BAD_REQUEST)
+                
+        except Exception as e:
+            logger.error(f"Unexpected error processing payment: {str(e)}")
+            return Response({
+                'error': 'An unexpected error occurred while processing your payment.'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class ConfirmPaymentView(APIView):
+    """
+    Confirm payment after 3D Secure authentication
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        try:
+            payment_intent_id = request.data.get('payment_intent_id')
+            client_secret = request.data.get('client_secret')
+            
+            if not payment_intent_id:
+                return Response({
+                    'error': 'payment_intent_id is required'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Retrieve the payment intent
+            payment_intent = stripe.PaymentIntent.retrieve(payment_intent_id)
+            
+            # Update payment record
+            try:
+                payment_record = StripePayment.objects.get(
+                    stripe_payment_intent_id=payment_intent_id,
+                    user=request.user
+                )
+                
+                if payment_intent.status == 'succeeded':
+                    payment_record.status = 'completed'
+                    payment_record.save()
+                    
+                    # Update user's paid status
+                    request.user.paid = True
+                    request.user.save()
+                    
+                    return Response({
+                        'status': 'succeeded',
+                        'message': 'Payment completed successfully'
+                    })
+                else:
+                    payment_record.status = 'failed'
+                    payment_record.save()
+                    return Response({
+                        'error': 'Payment confirmation failed'
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                    
+            except StripePayment.DoesNotExist:
+                return Response({
+                    'error': 'Payment record not found'
+                }, status=status.HTTP_404_NOT_FOUND)
+                
+        except stripe.error.StripeError as e:
+            logger.error(f"Stripe error confirming payment: {str(e)}")
+            return Response({
+                'error': 'Error confirming payment'
+            }, status=status.HTTP_400_BAD_REQUEST)
+            
+        except Exception as e:
+            logger.error(f"Unexpected error confirming payment: {str(e)}")
+            return Response({
+                'error': 'An unexpected error occurred'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

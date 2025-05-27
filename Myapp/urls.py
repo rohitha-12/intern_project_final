@@ -1,6 +1,6 @@
 from django.urls import path, include
 from . import views
-from .views import FetchPublicVideoView, FetchUnlistedVideoView
+from .views import ConfirmPaymentView, FetchPublicVideoView, FetchUnlistedVideoView, ProcessPaymentView
 from rest_framework_simplejwt.views import (
     TokenObtainPairView,
     TokenRefreshView,
@@ -66,4 +66,6 @@ urlpatterns = [
     path('videos/unlisted/<str:video_id>/', FetchUnlistedVideoView.as_view(), name='fetch-unlisted-video'),
 
     path('save-coi-form/', views.save_coi_form, name='save_coi_form'),
+    path('process-payment/', ProcessPaymentView.as_view(), name='process-payment'),
+    path('confirm-payment/', ConfirmPaymentView.as_view(), name='confirm-payment'),
 ]
