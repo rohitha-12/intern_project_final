@@ -64,4 +64,6 @@ urlpatterns = [
     #vimeo URLs
     path('videos/public/<str:video_id>/', FetchPublicVideoView.as_view(), name='fetch-public-video'),
     path('videos/unlisted/<str:video_id>/', FetchUnlistedVideoView.as_view(), name='fetch-unlisted-video'),
+
+    path('save-coi-form/', views.save_coi_form, name='save_coi_form'),
 ]

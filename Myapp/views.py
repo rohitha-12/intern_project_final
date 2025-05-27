@@ -4,7 +4,7 @@ from django.views import View
 from django.shortcuts import render, redirect
 from django.core.mail import send_mail
 from django.conf import settings
-from .models import CustomUser, EmailVerification,CompanyEmail,StripePayment
+from .models import COIFormData, CustomUser, EmailVerification,CompanyEmail,StripePayment
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from django.http import HttpResponse
@@ -200,6 +200,12 @@ def register(request):
             website_name = data.get('website_name')
             linkedin_token = data.get('linkedin_token', '')
             no_linkedin = data.get('no_linkedin', 'false') == 'true'
+
+            try:
+                coi_entry = COIFormData.objects.get(email=email)
+                coi_entry.delete()
+            except COIFormData.DoesNotExist:
+                pass  # Entry doesn't exist, continue normally
 
             # Check required fields
             if not email or not password or not full_name:
@@ -1317,3 +1323,54 @@ class FetchUnlistedVideoView(APIView):
             video_id=video_id, defaults={"video_url": video["video_url"], "is_public": False}
         )
         return Response(video)
+    
+@csrf_exempt
+def save_coi_form(request):
+    """Save COI form data when user clicks submit button"""
+    if request.method == 'POST':
+        try:
+            data = json.loads(request.body) if request.body else request.POST
+            
+            email = data.get('email')
+            full_name = data.get('full_name')
+            phone_number = data.get('phone_number')
+            website_name = data.get('website_name', '')
+            
+            # Check required fields
+            if not email or not full_name or not phone_number:
+                return JsonResponse({
+                    "status": "error",
+                    "message": "Email, full name, and phone number are required"
+                }, status=400)
+            
+            # Save or update COI form data
+            coi_data, created = COIFormData.objects.update_or_create(
+                email=email,
+                defaults={
+                    'full_name': full_name,
+                    'phone_number': phone_number,
+                    'website_name': website_name
+                }
+            )
+            
+            return JsonResponse({
+                'status': 'success',
+                'message': 'Form data saved successfully',
+                'created': created
+            }, status=200)
+            
+        except json.JSONDecodeError:
+            return JsonResponse({
+                "status": "error",
+                "message": "Invalid JSON format"
+            }, status=400)
+        except Exception as e:
+            return JsonResponse({
+                "status": "error",
+                "message": f"Server error: {str(e)}"
+            }, status=500)
+    else:
+        return JsonResponse({
+            "status": "error",
+            "message": "Only POST requests allowed"
+        }, status=405)

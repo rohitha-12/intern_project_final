@@ -173,3 +173,13 @@ class VimeoVideo(models.Model):
 
     def __str__(self):
         return self.video_id
+    
+class COIFormData(models.Model):
+    email = models.EmailField(unique=True)
+    full_name = models.CharField(max_length=255)
+    phone_number = models.CharField(max_length=20)
+    website_name = models.CharField(max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        db_table = 'coi_form_data'
