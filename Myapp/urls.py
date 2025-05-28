@@ -1,6 +1,5 @@
 from django.urls import path, include
 from . import views
-from .views import ConfirmPaymentView, FetchPublicVideoView, FetchUnlistedVideoView, ProcessPaymentView, ProcessTokenizedPaymentView
 from rest_framework_simplejwt.views import (
     TokenObtainPairView,
     TokenRefreshView,
@@ -51,9 +50,6 @@ urlpatterns = [
     path('category-statistics/', views.read_excel_sheet_by_name, name='category-statistics'),
     path('category-list/', views.get_category_list, name='category-list'),
 
-    #payment
-    path('create-checkout-session/', views.CreateCheckoutSessionView.as_view(), name='create-checkout-session'),
-    path('webhook/', views.StripeWebhookView.as_view(), name='stripe-webhook'),
 
     # Stripe Payment URLs
     path('create-checkout-session/', views.CreateCheckoutSessionView.as_view(), name='create-checkout-session'),
@@ -62,11 +58,11 @@ urlpatterns = [
     path('user-payments/', views.UserPaymentsView.as_view(), name='user-payments'),
 
     #vimeo URLs
-    path('videos/public/<str:video_id>/', FetchPublicVideoView.as_view(), name='fetch-public-video'),
-    path('videos/unlisted/<str:video_id>/', FetchUnlistedVideoView.as_view(), name='fetch-unlisted-video'),
+    path('videos/public/<str:video_id>/', views.FetchPublicVideoView.as_view(), name='fetch-public-video'),
+    path('videos/unlisted/<str:video_id>/', views.FetchUnlistedVideoView.as_view(), name='fetch-unlisted-video'),
 
     path('save-coi-form/', views.save_coi_form, name='save_coi_form'),
-    path('process-payment/', ProcessPaymentView.as_view(), name='process-payment'),
-    path('confirm-payment/', ConfirmPaymentView.as_view(), name='confirm-payment'),
-    path('process-tokenized-payment/', ProcessTokenizedPaymentView.as_view(), name='process-tokenized-payment'),
+    path('process-payment/', views.ProcessPaymentView.as_view(), name='process-payment'),
+    path('confirm-payment/', views.ConfirmPaymentView.as_view(), name='confirm-payment'),
+    path('process-tokenized-payment/', views.ProcessTokenizedPaymentView.as_view(), name='process-tokenized-payment'),
 ]

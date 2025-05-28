@@ -47,7 +47,7 @@ class CustomUserManager(BaseUserManager):
         timestamp = str(int(time.time()))[-4:]  # Last 4 digits of timestamp
         return f"{color}{obj}{timestamp}"
     
-    def create_user(self, email, password=None, **extra_fields):
+    def create_user(self, email, username=None, password=None, **extra_fields):
         if not email:
             raise ValueError('Email is required')
         email = self.normalize_email(email)

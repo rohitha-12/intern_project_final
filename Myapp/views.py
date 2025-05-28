@@ -464,6 +464,7 @@ class SettingsSectionsView(APIView):
             {"key": "change_username", "label": "Change Username"},
             {"key": "change_email", "label": "Change Email ID"},
             {"key": "change_password", "label": "Change Password"},
+            {"key": "payment_history", "label": "Payment History"},
         ]
         return Response({"sections": sections})
 
@@ -904,58 +905,6 @@ def get_category_list(request):
     except Exception as e:
         return JsonResponse({'error': f'Unexpected error: {str(e)}'}, status=500)
 
-#payment
-class CreateCheckoutSessionView(APIView):
-    def post(self, request):
-        try:
-            checkout_session = stripe.checkout.Session.create(
-                payment_method_types=['card'],
-                line_items=[{
-                    'price_data': {
-                        'currency': 'usd',
-                        'unit_amount': int(float(request.data['amount']) * 100),  # amount in cents
-                        'product_data': {
-                            'name': request.data['product_name'],
-                        },
-                    },
-                    'quantity': 1,
-                }],
-                mode='payment',
-                success_url=f"{getattr(settings, 'FRONTEND_URL', 'http://localhost:8080')}/payment-success?session_id={{CHECKOUT_SESSION_ID}}",
-cancel_url=f"{getattr(settings, 'FRONTEND_URL', 'http://localhost:8080')}/payment-cancelled",
-            )
-            return Response({'sessionId': checkout_session.id})
-        except Exception as e:
-            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
-
-
-
-@method_decorator(csrf_exempt, name='dispatch')
-class StripeWebhookView(APIView):
-    def post(self, request):
-        payload = request.body
-        sig_header = request.META.get('HTTP_STRIPE_SIGNATURE')
-        endpoint_secret = 'your_webhook_secret_here'
-
-        try:
-            event = stripe.Webhook.construct_event(
-                payload, sig_header, endpoint_secret
-            )
-        except stripe.error.SignatureVerificationError:
-            return HttpResponse(status=400)
-
-        if event['type'] == 'checkout.session.completed':
-            session = event['data']['object']
-
-            StripePayment.objects.create(
-                stripe_session_id=session['id'],
-                email=session.get('customer_email', ''),
-                amount=int(session['amount_total']) / 100,
-                currency=session['currency'],
-                status=session['payment_status']
-            )
-
-        return HttpResponse(status=200)
 logger = logging.getLogger(__name__)
 class ExtractUserDataFromHeaderView(APIView):
     """
@@ -1041,26 +990,28 @@ class ExtractUserDataFromHeaderView(APIView):
                 "status": "error", 
                 "message": f"Server error: {str(e)}"
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-        
+
+
 class CreateCheckoutSessionView(APIView):
     """
     Create a Stripe Checkout Session for payment processing
     """
+    print("Stripe key:", settings.STRIPE_SECRET_KEY)
     permission_classes = [IsAuthenticated]
-    
+
     def post(self, request):
         try:
             # Get data from request
             amount = request.data.get('amount', 2999)  # Default $29.99
             product_name = request.data.get('product_name', 'Premium Plan')
             billing_info = request.data.get('billing_info', {})
-            
+
             # Validate required fields
             if not billing_info.get('fullName') or not billing_info.get('email'):
                 return Response({
                     'error': 'Full name and email are required in billing_info'
                 }, status=status.HTTP_400_BAD_REQUEST)
-            
+
             # Create the checkout session
             checkout_session = stripe.checkout.Session.create(
                 payment_method_types=['card'],
@@ -1077,7 +1028,7 @@ class CreateCheckoutSessionView(APIView):
                     'quantity': 1,
                 }],
                 mode='payment',
-                success_url=f"{getattr(settings, 'FRONTEND_URL', 'http://localhost:3000')}",
+                success_url=f"{getattr(settings, 'FRONTEND_URL', 'http://localhost:3000')}/payment-success?session_id={{CHECKOUT_SESSION_ID}}",
                 cancel_url=f"{getattr(settings, 'FRONTEND_URL', 'http://localhost:3000')}/payment-cancelled",
                 metadata={
                     'user_id': str(request.user.id),
@@ -1086,7 +1037,7 @@ class CreateCheckoutSessionView(APIView):
                     'company_name': billing_info.get('companyName', ''),
                 }
             )
-            
+
             # Create payment record in database
             StripePayment.objects.create(
                 user=request.user,
@@ -1099,20 +1050,20 @@ class CreateCheckoutSessionView(APIView):
                 company_name=billing_info.get('companyName', ''),
                 product_name=product_name
             )
-            
+
             logger.info(f"Checkout session created: {checkout_session.id} for user: {request.user.id}")
-            
+
             return Response({
                 'sessionId': checkout_session.id,
                 'url': checkout_session.url
             })
-            
+
         except stripe.error.StripeError as e:
             logger.error(f"Stripe error: {str(e)}")
             return Response({
                 'error': f'Payment processing error: {str(e)}'
             }, status=status.HTTP_400_BAD_REQUEST)
-            
+
         except Exception as e:
             logger.error(f"Unexpected error creating checkout session: {str(e)}")
             return Response({
@@ -1120,6 +1071,7 @@ class CreateCheckoutSessionView(APIView):
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
+@method_decorator(csrf_exempt, name='dispatch')
 @method_decorator(csrf_exempt, name='dispatch')
 class StripeWebhookView(View):
     """
@@ -1173,7 +1125,12 @@ class StripeWebhookView(View):
             payment.stripe_payment_intent_id = session.get('payment_intent')
             payment.save()
             
-            logger.info(f"Payment completed for session: {session['id']}")
+            # Set user as paid when checkout session is completed
+            user = payment.user
+            user.paid = True
+            user.save()
+            
+            logger.info(f"Payment completed for session: {session['id']}, user {user.id} marked as paid")
             
             # Here you can add additional logic like:
             # - Send confirmation email to customer
@@ -1195,15 +1152,35 @@ class StripeWebhookView(View):
             payment.status = 'succeeded'
             payment.save()
 
+            # Set user as paid when payment intent succeeds
             user = payment.user
             user.paid = True
             user.save()
-
             
-            logger.info(f"Payment intent succeeded: {payment_intent['id']}")
+            logger.info(f"Payment intent succeeded: {payment_intent['id']}, user {user.id} marked as paid")
             
         except StripePayment.DoesNotExist:
             logger.warning(f"Payment record not found for payment intent: {payment_intent['id']}")
+            # Try to find by session if payment intent wasn't saved initially
+            try:
+                # Retrieve the session from Stripe to get metadata
+                sessions = stripe.checkout.Session.list(
+                    payment_intent=payment_intent['id'],
+                    limit=1
+                )
+                if sessions.data:
+                    session = sessions.data[0]
+                    user_id = session.metadata.get('user_id')
+                    if user_id:
+                        from django.contrib.auth import get_user_model
+                        User = get_user_model()
+                        user = User.objects.get(id=user_id)
+                        user.paid = True
+                        user.save()
+                        logger.info(f"User {user_id} marked as paid via session metadata")
+            except Exception as fallback_error:
+                logger.error(f"Fallback error: {fallback_error}")
+                
         except Exception as e:
             logger.error(f"Error handling payment intent succeeded: {str(e)}")
     
@@ -1217,11 +1194,12 @@ class StripeWebhookView(View):
             payment.status = 'failed'
             payment.save()
 
+            # Ensure user is not marked as paid when payment fails
             user = payment.user
             user.paid = False
             user.save()
             
-            logger.info(f"Payment intent failed: {payment_intent['id']}")
+            logger.info(f"Payment intent failed: {payment_intent['id']}, user {user.id} marked as not paid")
             
         except StripePayment.DoesNotExist:
             logger.warning(f"Payment record not found for payment intent: {payment_intent['id']}")
@@ -1254,12 +1232,21 @@ class PaymentStatusView(APIView):
                     user=request.user
                 )
                 
+                # If payment is successful but user isn't marked as paid, update it
+                if session.payment_status == 'paid' and not request.user.paid:
+                    request.user.paid = True
+                    request.user.save()
+                    payment.status = 'completed'
+                    payment.save()
+                    logger.info(f"User {request.user.id} marked as paid via status check")
+                
                 return Response({
                     'status': session.payment_status,
                     'amount_total': session.amount_total,
                     'currency': session.currency,
                     'customer_email': session.customer_email,
                     'payment_status': payment.status,
+                    'user_paid': request.user.paid,
                     'created_at': payment.created_at.isoformat() if payment.created_at else None
                 })
                 
@@ -1299,7 +1286,8 @@ class UserPaymentsView(APIView):
             })
         
         return Response({
-            'payments': payment_data
+            'payments': payment_data,
+            'user_paid_status': request.user.paid
         })
     
 class FetchPublicVideoView(APIView):
@@ -1753,4 +1741,66 @@ class ProcessTokenizedPaymentView(APIView):
             logger.error(f"Unexpected error processing tokenized payment: {str(e)}")
             return Response({
                 'error': 'An unexpected error occurred while processing your payment request.'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+
+class SyncPaymentStatusView(APIView):
+    """
+    Manually sync payment status from Stripe (for admin/debugging purposes)
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        try:
+            session_id = request.data.get('session_id')
+            if not session_id:
+                return Response({
+                    'error': 'session_id is required'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Retrieve session from Stripe
+            session = stripe.checkout.Session.retrieve(session_id)
+            
+            # Find the payment record
+            try:
+                payment = StripePayment.objects.get(
+                    stripe_session_id=session_id,
+                    user=request.user
+                )
+                
+                # Update based on Stripe session status
+                if session.payment_status == 'paid':
+                    payment.status = 'completed'
+                    payment.stripe_payment_intent_id = session.payment_intent
+                    payment.save()
+                    
+                    # Mark user as paid
+                    request.user.paid = True
+                    request.user.save()
+                    
+                    return Response({
+                        'message': 'Payment status synced successfully',
+                        'user_paid': True,
+                        'payment_status': 'completed'
+                    })
+                else:
+                    return Response({
+                        'message': 'Payment not completed in Stripe',
+                        'stripe_status': session.payment_status
+                    })
+                    
+            except StripePayment.DoesNotExist:
+                return Response({
+                    'error': 'Payment record not found'
+                }, status=status.HTTP_404_NOT_FOUND)
+                
+        except stripe.error.StripeError as e:
+            logger.error(f"Stripe error in sync: {str(e)}")
+            return Response({
+                'error': 'Error retrieving payment from Stripe'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            logger.error(f"Error in sync: {str(e)}")
+            return Response({
+                'error': 'An unexpected error occurred'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

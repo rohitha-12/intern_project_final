@@ -13,6 +13,9 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 from pathlib import Path
 import os
 
+from decouple import config
+from dotenv import load_dotenv
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -174,17 +177,11 @@ LOGIN_REDIRECT_URL = '/settings/sections/'
 
 
 # Stripe settings
-STRIPE_SECRET_KEY = 'sk_test_51RPvxVGq7lR7zc6NS93Kbg2HGhe1rK273sM4CIV7YcM44mcYOoQfprlLh3xbxsXbXxVRdAAhWEPnSrf9jPyQcZus00GzpVgzwB'
-STRIPE_PUBLISHABLE_KEY = 'pk_test_51RPvxVGq7lR7zc6NwAd6VKBnrteOef9QOGEBwAdhmOYCdkB84JZ1C6X3MpddKym6jtVGGBvRlKS9dWV7tG2UtAYS00dZUM68Xv'
-DOMAIN_URL = 'http://localhost:8000'
-
-
-from decouple import config  # Optional: for environment variables
-
+load_dotenv()
 # Stripe Configuration
-STRIPE_PUBLIC_KEY = config(STRIPE_PUBLISHABLE_KEY, default='')
-STRIPE_SECRET_KEY = config(STRIPE_SECRET_KEY, default='')
-STRIPE_WEBHOOK_SECRET = config('STRIPE_WEBHOOK_SECRET', default='')
+STRIPE_PUBLIC_KEY = os.getenv('STRIPE_PUBLISHABLE_KEY', 'NOT SET')
+STRIPE_SECRET_KEY = os.getenv('STRIPE_SECRET_KEY', 'NOT SET')
+STRIPE_WEBHOOK_SECRET = os.getenv('STRIPE_WEBHOOK_SECRET', 'NOT SET')
 
 # Frontend URL for redirects
 FRONTEND_URL = config('FRONTEND_URL', default='http://localhost:8080')
