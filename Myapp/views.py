@@ -906,6 +906,7 @@ def get_category_list(request):
         return JsonResponse({'error': f'Unexpected error: {str(e)}'}, status=500)
 
 logger = logging.getLogger(__name__)
+
 class ExtractUserDataFromHeaderView(APIView):
     """
     Extract user data from JWT token in Authorization header
@@ -944,6 +945,8 @@ class ExtractUserDataFromHeaderView(APIView):
                     'linkedin_url': getattr(user, 'linkedin_url', ''),
                     'no_linkedin': getattr(user, 'no_linkedin', False),
                     'email_verified': getattr(user, 'email_verified', False),
+                    'paid': getattr(user, 'paid', False),  # Added this line
+                    'linkedin_verified': getattr(user, 'linkedin_verified', False),  # Also missing
                 }
             
             # Add additional fields safely
