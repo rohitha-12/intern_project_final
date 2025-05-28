@@ -1594,13 +1594,21 @@ class ProcessTokenizedPaymentView(APIView):
             billing_info = request.data.get('billing_info', {})
             payment_method_data = request.data.get('payment_method_data', {})
             
+            logger.info(f"Processing tokenized payment for user {request.user.id}: amount={amount}, payment_method_type={payment_method_data.get('type')}")
+            
             # Validate required fields
             if not billing_info.get('fullName') or not billing_info.get('email'):
                 return Response({
                     'error': 'Full name and email are required'
                 }, status=status.HTTP_400_BAD_REQUEST)
             
+            if not payment_method_data:
+                return Response({
+                    'error': 'Payment method data is required'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
             # Create or get customer
+            customer = None
             try:
                 # Try to find existing customer
                 customers = stripe.Customer.list(
@@ -1610,6 +1618,7 @@ class ProcessTokenizedPaymentView(APIView):
                 
                 if customers.data:
                     customer = customers.data[0]
+                    logger.info(f"Found existing customer: {customer.id}")
                 else:
                     customer = stripe.Customer.create(
                         email=billing_info.get('email'),
@@ -1619,18 +1628,22 @@ class ProcessTokenizedPaymentView(APIView):
                             'company_name': billing_info.get('companyName', ''),
                         }
                     )
-            except stripe.error.StripeError:
-                customer = stripe.Customer.create(
-                    email=billing_info.get('email'),
-                    name=billing_info.get('fullName'),
-                    metadata={
-                        'user_id': str(request.user.id),
-                        'company_name': billing_info.get('companyName', ''),
-                    }
-                )
+                    logger.info(f"Created new customer: {customer.id}")
+                    
+            except stripe.error.StripeError as e:
+                logger.error(f"Error handling customer: {str(e)}")
+                return Response({
+                    'error': 'Error processing customer information'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Initialize payment variables
+            payment_intent = None
+            payment_method = None
             
             # Handle different payment method types
-            if payment_method_data.get('type') == 'card':
+            payment_type = payment_method_data.get('type')
+            
+            if payment_type == 'card':
                 # Use the payment method ID from Stripe.js tokenization
                 payment_method_id = payment_method_data.get('payment_method_id')
                 
@@ -1639,103 +1652,183 @@ class ProcessTokenizedPaymentView(APIView):
                         'error': 'Payment method ID is required for card payments'
                     }, status=status.HTTP_400_BAD_REQUEST)
                 
-                # Create payment intent with the tokenized payment method
-                payment_intent = stripe.PaymentIntent.create(
-                    amount=int(amount),
-                    currency='usd',
-                    customer=customer.id,
-                    payment_method=payment_method_id,
-                    confirmation_method='manual',
-                    confirm=True,
-                    return_url=f"{getattr(settings, 'FRONTEND_URL', 'http://localhost:3000')}/payment-success",
-                    metadata={
-                        'user_id': str(request.user.id),
-                        'product_name': product_name,
-                    }
-                )
+                try:
+                    # Attach payment method to customer if not already attached
+                    payment_method = stripe.PaymentMethod.retrieve(payment_method_id)
+                    if not payment_method.customer:
+                        payment_method.attach(customer=customer.id)
+                    
+                    # Create payment intent with the tokenized payment method
+                    payment_intent = stripe.PaymentIntent.create(
+                        amount=int(amount),
+                        currency='usd',
+                        customer=customer.id,
+                        payment_method=payment_method_id,
+                        confirmation_method='manual',
+                        confirm=True,
+                        return_url=f"{getattr(settings, 'FRONTEND_URL', 'http://localhost:3000')}/payment-success",
+                        description=f'{product_name} for {billing_info.get("fullName")}',
+                        metadata={
+                            'user_id': str(request.user.id),
+                            'product_name': product_name,
+                            'customer_name': billing_info.get('fullName'),
+                            'company_name': billing_info.get('companyName', ''),
+                        }
+                    )
+                    
+                except stripe.error.StripeError as e:
+                    logger.error(f"Error creating card payment intent: {str(e)}")
+                    return Response({
+                        'error': f'Card payment error: {str(e)}'
+                    }, status=status.HTTP_400_BAD_REQUEST)
                 
-            elif payment_method_data.get('type') == 'us_bank_account':
+            elif payment_type == 'us_bank_account':
                 # Create payment method for bank account
                 us_bank_account = payment_method_data.get('us_bank_account', {})
                 billing_details = payment_method_data.get('billing_details', {})
                 
-                payment_method = stripe.PaymentMethod.create(
-                    type="us_bank_account",
-                    us_bank_account=us_bank_account,
-                    billing_details=billing_details
-                )
+                # Validate bank account data
+                if not us_bank_account.get('routing_number') or not us_bank_account.get('account_number'):
+                    return Response({
+                        'error': 'Bank routing number and account number are required'
+                    }, status=status.HTTP_400_BAD_REQUEST)
                 
-                # Attach to customer
-                payment_method.attach(customer=customer.id)
-                
-                # Create payment intent
-                payment_intent = stripe.PaymentIntent.create(
-                    amount=int(amount),
-                    currency='usd',
-                    customer=customer.id,
-                    payment_method=payment_method.id,
-                    payment_method_types=['us_bank_account'],
-                    confirm=True,
-                    mandate_data={
-                        'customer_acceptance': {
-                            'type': 'online',
-                            'online': {
-                                'ip_address': request.META.get('REMOTE_ADDR'),
-                                'user_agent': request.META.get('HTTP_USER_AGENT'),
-                            }
+                try:
+                    payment_method = stripe.PaymentMethod.create(
+                        type="us_bank_account",
+                        us_bank_account=us_bank_account,
+                        billing_details=billing_details or {
+                            'name': billing_info.get('fullName'),
+                            'email': billing_info.get('email'),
                         }
-                    },
-                    metadata={
-                        'user_id': str(request.user.id),
-                        'product_name': product_name,
-                    }
-                )
+                    )
+                    
+                    # Attach to customer
+                    payment_method.attach(customer=customer.id)
+                    
+                    # Get client IP and user agent safely
+                    client_ip = request.META.get('REMOTE_ADDR', '127.0.0.1')
+                    user_agent = request.META.get('HTTP_USER_AGENT', 'Unknown')
+                    
+                    # Create payment intent
+                    payment_intent = stripe.PaymentIntent.create(
+                        amount=int(amount),
+                        currency='usd',
+                        customer=customer.id,
+                        payment_method=payment_method.id,
+                        payment_method_types=['us_bank_account'],
+                        confirm=True,
+                        description=f'{product_name} for {billing_info.get("fullName")}',
+                        mandate_data={
+                            'customer_acceptance': {
+                                'type': 'online',
+                                'online': {
+                                    'ip_address': client_ip,
+                                    'user_agent': user_agent,
+                                }
+                            }
+                        },
+                        metadata={
+                            'user_id': str(request.user.id),
+                            'product_name': product_name,
+                            'customer_name': billing_info.get('fullName'),
+                            'company_name': billing_info.get('companyName', ''),
+                        }
+                    )
+                    
+                except stripe.error.StripeError as e:
+                    logger.error(f"Error creating bank account payment: {str(e)}")
+                    return Response({
+                        'error': f'Bank account payment error: {str(e)}'
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                    
             else:
                 return Response({
-                    'error': 'Invalid payment method type'
+                    'error': f'Unsupported payment method type: {payment_type}'
                 }, status=status.HTTP_400_BAD_REQUEST)
             
-            # Create payment record in database
-            StripePayment.objects.create(
-                user=request.user,
-                stripe_payment_intent_id=payment_intent.id,
-                email=billing_info.get('email'),
-                amount=float(amount) / 100,
-                currency='usd',
-                status=payment_intent.status,
-                customer_name=billing_info.get('fullName'),
-                company_name=billing_info.get('companyName', ''),
-                product_name=product_name
-            )
+            # Ensure payment_intent was created
+            if not payment_intent:
+                return Response({
+                    'error': 'Failed to create payment intent'
+                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
             
-            logger.info(f"Tokenized payment intent created: {payment_intent.id} for user: {request.user.id}")
+            # Create payment record in database
+            try:
+                payment_record = StripePayment.objects.create(
+                    user=request.user,
+                    stripe_payment_intent_id=payment_intent.id,
+                    email=billing_info.get('email'),
+                    amount=float(amount) / 100,
+                    currency='usd',
+                    status=payment_intent.status,
+                    customer_name=billing_info.get('fullName'),
+                    company_name=billing_info.get('companyName', ''),
+                    product_name=product_name
+                )
+                logger.info(f"Created payment record: {payment_record.id}")
+                
+            except Exception as e:
+                logger.error(f"Error creating payment record: {str(e)}")
+                # Continue processing even if DB record fails
+            
+            logger.info(f"Tokenized payment intent created: {payment_intent.id} for user: {request.user.id}, status: {payment_intent.status}")
             
             response_data = {
                 'payment_intent_id': payment_intent.id,
-                'status': payment_intent.status
+                'status': payment_intent.status,
+                'requires_action': False
             }
             
             # Handle different payment intent statuses
             if payment_intent.status == 'requires_action':
                 response_data['requires_action'] = True
                 response_data['client_secret'] = payment_intent.client_secret
+                if payment_intent.next_action:
+                    response_data['next_action'] = payment_intent.next_action
+                    
             elif payment_intent.status == 'succeeded':
                 # Update user's paid status
-                user = request.user
-                user.paid = True
-                user.save()
-                response_data['requires_action'] = False
+                try:
+                    request.user.paid = True
+                    request.user.save()
+                    
+                    # Update payment record status if it exists
+                    if 'payment_record' in locals():
+                        payment_record.status = 'completed'
+                        payment_record.save()
+                        
+                    response_data['message'] = 'Payment completed successfully'
+                    logger.info(f"Payment succeeded immediately for user: {request.user.id}")
+                    
+                except Exception as e:
+                    logger.error(f"Error updating user paid status: {str(e)}")
+                    
+            elif payment_intent.status == 'processing':
+                response_data['message'] = 'Payment is being processed'
+                
+            elif payment_intent.status == 'requires_payment_method':
+                response_data['error'] = 'Payment method was declined. Please try again with a different payment method.'
+                
+            else:
+                response_data['message'] = f'Payment status: {payment_intent.status}'
             
             return Response(response_data)
             
         except stripe.error.CardError as e:
-            logger.error(f"Card error: {str(e)}")
+            logger.error(f"Card error in tokenized payment: {str(e)}")
             return Response({
-                'error': f'Card error: {e.user_message}'
+                'error': f'Card error: {e.user_message or str(e)}'
+            }, status=status.HTTP_400_BAD_REQUEST)
+            
+        except stripe.error.InvalidRequestError as e:
+            logger.error(f"Invalid request error: {str(e)}")
+            return Response({
+                'error': f'Invalid payment request: {str(e)}'
             }, status=status.HTTP_400_BAD_REQUEST)
             
         except stripe.error.StripeError as e:
-            logger.error(f"Stripe error: {str(e)}")
+            logger.error(f"Stripe error in tokenized payment: {str(e)}")
             return Response({
                 'error': f'Payment processing error: {str(e)}'
             }, status=status.HTTP_400_BAD_REQUEST)
@@ -1744,66 +1837,4 @@ class ProcessTokenizedPaymentView(APIView):
             logger.error(f"Unexpected error processing tokenized payment: {str(e)}")
             return Response({
                 'error': 'An unexpected error occurred while processing your payment request.'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-        
-
-class SyncPaymentStatusView(APIView):
-    """
-    Manually sync payment status from Stripe (for admin/debugging purposes)
-    """
-    permission_classes = [IsAuthenticated]
-    
-    def post(self, request):
-        try:
-            session_id = request.data.get('session_id')
-            if not session_id:
-                return Response({
-                    'error': 'session_id is required'
-                }, status=status.HTTP_400_BAD_REQUEST)
-            
-            # Retrieve session from Stripe
-            session = stripe.checkout.Session.retrieve(session_id)
-            
-            # Find the payment record
-            try:
-                payment = StripePayment.objects.get(
-                    stripe_session_id=session_id,
-                    user=request.user
-                )
-                
-                # Update based on Stripe session status
-                if session.payment_status == 'paid':
-                    payment.status = 'completed'
-                    payment.stripe_payment_intent_id = session.payment_intent
-                    payment.save()
-                    
-                    # Mark user as paid
-                    request.user.paid = True
-                    request.user.save()
-                    
-                    return Response({
-                        'message': 'Payment status synced successfully',
-                        'user_paid': True,
-                        'payment_status': 'completed'
-                    })
-                else:
-                    return Response({
-                        'message': 'Payment not completed in Stripe',
-                        'stripe_status': session.payment_status
-                    })
-                    
-            except StripePayment.DoesNotExist:
-                return Response({
-                    'error': 'Payment record not found'
-                }, status=status.HTTP_404_NOT_FOUND)
-                
-        except stripe.error.StripeError as e:
-            logger.error(f"Stripe error in sync: {str(e)}")
-            return Response({
-                'error': 'Error retrieving payment from Stripe'
-            }, status=status.HTTP_400_BAD_REQUEST)
-        except Exception as e:
-            logger.error(f"Error in sync: {str(e)}")
-            return Response({
-                'error': 'An unexpected error occurred'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
