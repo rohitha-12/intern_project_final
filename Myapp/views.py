@@ -935,56 +935,97 @@ class ExtractUserDataFromHeaderView(APIView):
                 logger.info("Serialization successful")
             except Exception as serializer_error:
                 logger.error(f"Serialization error: {str(serializer_error)}")
-                # Fallback: manual serialization
-                user_data = {
-                    'id': user.id,
-                    'email': getattr(user, 'email', ''),
-                    'full_name': getattr(user, 'full_name', ''),
-                    'phone_number': getattr(user, 'phone_number', ''),
-                    'website_name': getattr(user, 'website_name', ''),
-                    'linkedin_url': getattr(user, 'linkedin_url', ''),
-                    'no_linkedin': getattr(user, 'no_linkedin', False),
-                    'email_verified': getattr(user, 'email_verified', False),
-                    'paid': getattr(user, 'paid', False),  # Added this line
-                    'linkedin_verified': getattr(user, 'linkedin_verified', False),  # Also missing
-                }
+                # Fallback: comprehensive manual serialization for all CustomUser fields
+                user_data = {}
             
-            # Add additional fields safely
-            additional_data = {}
+            # Comprehensive user data extraction - ensure all CustomUser fields are included
+            complete_user_data = {
+                # Primary identification fields
+                'id': getattr(user, 'id', None),
+                'username': getattr(user, 'username', ''),
+                'email': getattr(user, 'email', ''),
+                
+                # Personal information
+                'full_name': getattr(user, 'full_name', ''),
+                'phone_number': getattr(user, 'phone_number', ''),
+                'website_name': getattr(user, 'website_name', ''),
+                
+                # LinkedIn related fields
+                'linkedin_url': getattr(user, 'linkedin_url', ''),
+                'linkedin_verified': getattr(user, 'linkedin_verified', False),
+                'no_linkedin': getattr(user, 'no_linkedin', False),
+                
+                # Verification and payment status
+                'email_verified': getattr(user, 'email_verified', False),
+                'paid': getattr(user, 'paid', False),
+                
+                # Account status fields
+                'is_active': getattr(user, 'is_active', True),
+                'is_staff': getattr(user, 'is_staff', False),
+                
+                # OTP related fields
+                'email_otp': getattr(user, 'email_otp', ''),
+                
+                # Permission related fields (from PermissionsMixin)
+                'is_superuser': getattr(user, 'is_superuser', False),
+            }
             
-            # Safely add username
-            if hasattr(user, 'username'):
-                additional_data['username'] = user.username
+            # Handle datetime fields with proper formatting
+            datetime_fields = ['date_joined', 'last_login', 'otp_created_at']
+            for field_name in datetime_fields:
+                if hasattr(user, field_name):
+                    field_value = getattr(user, field_name)
+                    if field_value:
+                        try:
+                            complete_user_data[field_name] = field_value.isoformat()
+                        except Exception as date_error:
+                            logger.warning(f"Error formatting {field_name}: {str(date_error)}")
+                            complete_user_data[field_name] = str(field_value)
+                    else:
+                        complete_user_data[field_name] = None
+                else:
+                    complete_user_data[field_name] = None
             
-            # Safely add is_active
-            if hasattr(user, 'is_active'):
-                additional_data['is_active'] = user.is_active
+            # If serializer worked, merge with complete data (serializer takes precedence)
+            if user_data:
+                complete_user_data.update(user_data)
+            else:
+                user_data = complete_user_data
             
-            # Safely add date_joined
-            if hasattr(user, 'date_joined') and user.date_joined:
-                try:
-                    additional_data['date_joined'] = user.date_joined.isoformat()
-                except Exception as date_error:
-                    logger.warning(f"Error formatting date_joined: {str(date_error)}")
-                    additional_data['date_joined'] = str(user.date_joined)
+            # Add any additional dynamic fields that might exist
+            additional_fields = []
+            for field in user._meta.get_fields():
+                field_name = field.name
+                if field_name not in complete_user_data and hasattr(user, field_name):
+                    try:
+                        field_value = getattr(user, field_name)
+                        # Handle different field types
+                        if hasattr(field_value, 'isoformat'):  # DateTime fields
+                            complete_user_data[field_name] = field_value.isoformat() if field_value else None
+                        elif hasattr(field_value, 'all'):  # ManyToMany or reverse ForeignKey
+                            # Skip complex relationships to avoid serialization issues
+                            continue
+                        else:
+                            complete_user_data[field_name] = field_value
+                        additional_fields.append(field_name)
+                    except Exception as field_error:
+                        logger.warning(f"Error accessing field {field_name}: {str(field_error)}")
+                        continue
             
-            # Safely add last_login
-            if hasattr(user, 'last_login') and user.last_login:
-                try:
-                    additional_data['last_login'] = user.last_login.isoformat()
-                except Exception as date_error:
-                    logger.warning(f"Error formatting last_login: {str(date_error)}")
-                    additional_data['last_login'] = str(user.last_login)
+            if additional_fields:
+                logger.info(f"Additional fields found and included: {additional_fields}")
             
-            # Merge additional data
-            user_data.update(additional_data)
+            # Final user data
+            user_data = complete_user_data
             
             logger.info("User data prepared successfully")
+            logger.info(f"Total fields returned: {len(user_data.keys())}")
             
             return Response({
                 "status": "success",
                 "message": "User data extracted successfully",
-                "user_data": user_data
+                "user_data": user_data,
+                "fields_count": len(user_data.keys())
             }, status=status.HTTP_200_OK)
             
         except Exception as e:
