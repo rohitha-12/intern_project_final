@@ -666,10 +666,6 @@ class ResetPassword(APIView):
         if not email or not new_password:
             return Response({"error": "Email and new password required."}, status=status.HTTP_400_BAD_REQUEST)
 
-        verified = cache.get(f"otp_verified_{email}")
-        if not verified:
-            return Response({"error": "OTP not verified or session expired."}, status=status.HTTP_403_FORBIDDEN)
-
         try:
             user = User.objects.get(email=email)
             user.set_password(new_password)
