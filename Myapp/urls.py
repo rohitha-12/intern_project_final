@@ -41,6 +41,7 @@ urlpatterns = [
     path('verify-email-otp/', views.VerifyEmailOTPView.as_view()),
     path('set-primary-email/', views.SetPrimaryEmailView.as_view()),
     path('remove-email/', views.RemoveEmailView.as_view()),
+    path('check-username/', views.check_username_exists, name='check_username'),
 
     #payment history
     path('payment-history/', views.SuccessfulPaymentsView.as_view(), name='payment-history'),

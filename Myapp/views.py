@@ -1875,3 +1875,33 @@ class ProcessTokenizedPaymentView(APIView):
             return Response({
                 'error': 'An unexpected error occurred while processing your payment request.'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+@csrf_exempt
+def check_username_exists(request):
+    """
+    Check if a username already exists in the database
+    """
+    if request.method != 'POST':
+        return JsonResponse({"status": "error", "message": "Only POST method allowed"}, status=405)
+    
+    try:
+        data = json.loads(request.body)
+        username = data.get('username')
+        
+        if not username:
+            return JsonResponse({"status": "error", "message": "Username is required"}, status=400)
+        
+        # Check if username exists
+        username_exists = User.objects.filter(username=username).exists()
+        
+        return JsonResponse({
+            "status": "success",
+            "username": username,
+            "exists": username_exists,
+            "message": "Username already taken" if username_exists else "Username is available"
+        })
+        
+    except json.JSONDecodeError:
+        return JsonResponse({"status": "error", "message": "Invalid JSON format"}, status=400)
+    except Exception as e:
+        return JsonResponse({"status": "error", "message": f"Server error: {str(e)}"}, status=500)
