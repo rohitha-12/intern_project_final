@@ -7,8 +7,9 @@
 <script>
     const username = "{{ username }}";  // from context passed by view
     const chatSocket = new WebSocket(
-        (window.location.protocol === 'https:' ? 'wss://' : 'ws://') + window.location.host + '/ws/chat/'
-    );
+    (window.location.protocol === 'https:' ? 'wss://' : 'ws://') + window.location.host + '/ws/chat/{{ room_name }}/'
+);
+
 
     chatSocket.onmessage = function(e) {
         const data = JSON.parse(e.data);

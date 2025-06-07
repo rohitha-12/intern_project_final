@@ -25,7 +25,7 @@ urlpatterns = [
     path('linkedin-callback/', LinkedInCallbackView.as_view(), name='linkedin_callback'),
 
     #chat
-    path('room/', views.room, name='room'),
+    path('chat/<str:room_name>/', views.room, name='room'),
     path('ai-chatbox/', views.ai_chatbox, name='ai_chatbox'),
 
     #settings

@@ -217,3 +217,35 @@ class COIFormData(models.Model):
     
     class Meta:
         db_table = 'coi_form_data'
+
+class ChatRoom(models.Model):
+    name = models.CharField(max_length=100, unique=True)
+
+    def __str__(self):
+        return self.name
+
+class Message(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    room = models.ForeignKey(ChatRoom, on_delete=models.CASCADE)
+    content = models.TextField()
+    timestamp = models.DateTimeField(auto_now_add=True)
+    is_pinned = models.BooleanField(default=False)
+
+    def __str__(self):
+        return f"{self.user.username}: {self.content[:30]}"
+
+class UserMembership(models.Model):
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    is_member = models.BooleanField(default=False)
+    is_webinar_form_submitted = models.BooleanField(default=False) 
+
+    def __str__(self):
+        return f"{self.user.username} - {'Member' if self.is_member else 'Not Member'}"
+
+class AdminProfile(models.Model):
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    display_name = models.CharField(max_length=100, default="Admin")
+
+    def __str__(self):
+        return f"{self.display_name} ({self.user.email})"
+

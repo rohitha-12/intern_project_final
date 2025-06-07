@@ -45,6 +45,7 @@ INSTALLED_APPS = [
     'Myapp',
     'rest_framework',
     'drf_yasg',
+    'channels',
 ]
 
 MIDDLEWARE = [
@@ -196,3 +197,13 @@ DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='noreply@yoursite.com'
 VIMEO_ACCESS_TOKEN = config('VIMEO_ACCESS_TOKEN')
 #place the access token in .env file
 #VIMEO_ACCESS_TOKEN=your_vimeo_oauth_key in .env file
+
+ASGI_APPLICATION = 'Internship_pro.asgi.application'
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {
+            "hosts": [("127.0.0.1", 6379)],
+        },
+    },
+}

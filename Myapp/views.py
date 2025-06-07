@@ -431,7 +431,7 @@ class LinkedInCallbackView(View):
 def room(request):
     return render(request, 'chat/room.html', {
         'username': request.user.username,
-        'user_is_authenticated': request.user.is_authenticated,
+        'room_name': room_name
     })
 
 @login_required(login_url='login')
