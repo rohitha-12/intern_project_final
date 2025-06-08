@@ -14,6 +14,7 @@ urlpatterns = [
     path('token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('extract-user-data/', ExtractUserDataFromHeaderView.as_view(), name='extract-user-data'),
+    path('set-webinar-form-filled-by-email/', views.set_webinar_form_filled_by_email, name='set_webinar_form_filled_by_email'),
     
     # Email verification paths
     path('check_email_status/', views.check_email_status, name='check_email_status'),

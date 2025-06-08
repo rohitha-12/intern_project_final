@@ -1909,3 +1909,50 @@ def check_username_exists(request):
         return JsonResponse({"status": "error", "message": "Invalid JSON format"}, status=400)
     except Exception as e:
         return JsonResponse({"status": "error", "message": f"Server error: {str(e)}"}, status=500)
+
+@csrf_exempt
+def set_webinar_form_filled_by_email(request):
+    """
+    Set iswebinarformfilled to True for a user by email
+    Expects JSON body with 'email' field
+    """
+    try:
+        data = json.loads(request.body)
+        email = data.get('email')
+        
+        if not email:
+            return JsonResponse({
+                'success': False,
+                'message': 'Email is required'
+            }, status=400)
+        
+        try:
+            user = User.objects.get(email=email)
+            user.iswebinarformfilled = True
+            user.save(update_fields=['iswebinarformfilled'])
+            
+            return JsonResponse({
+                'success': True,
+                'message': 'Webinar form status updated successfully',
+                'user_id': user.id,
+                'email': user.email,
+                'iswebinarformfilled': user.iswebinarformfilled
+            })
+            
+        except User.DoesNotExist:
+            return JsonResponse({
+                'success': False,
+                'message': 'User with this email does not exist'
+            }, status=404)
+    
+    except json.JSONDecodeError:
+        return JsonResponse({
+            'success': False,
+            'message': 'Invalid JSON data'
+        }, status=400)
+    
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'message': f'Error updating webinar form status: {str(e)}'
+        }, status=500)
