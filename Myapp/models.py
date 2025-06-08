@@ -75,6 +75,7 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     email_verified = models.BooleanField(default=False)
     no_linkedin = models.BooleanField(default=False)
     paid = models.BooleanField(default=False)
+    iswebinarformfilled = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
     website_name = models.CharField(max_length=200, blank=True, null=True)
@@ -248,4 +249,3 @@ class AdminProfile(models.Model):
 
     def __str__(self):
         return f"{self.display_name} ({self.user.email})"
-

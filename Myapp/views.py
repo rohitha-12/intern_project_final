@@ -1,10 +1,11 @@
 import logging
+from mailbox import Message
 from django.http import JsonResponse
 from django.views import View
 from django.shortcuts import render, redirect
 from django.core.mail import send_mail
 from django.conf import settings
-from .models import COIFormData, CustomUser, EmailVerification,CompanyEmail,StripePayment
+from .models import COIFormData, CustomUser, CompanyEmail,StripePayment
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from django.http import HttpResponse
@@ -954,6 +955,9 @@ class ExtractUserDataFromHeaderView(APIView):
                 # Verification and payment status
                 'email_verified': getattr(user, 'email_verified', False),
                 'paid': getattr(user, 'paid', False),
+                
+                # Form and webinar status
+                'iswebinarformfilled': getattr(user, 'iswebinarformfilled', False),
                 
                 # Account status fields
                 'is_active': getattr(user, 'is_active', True),

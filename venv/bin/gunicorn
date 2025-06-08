@@ -1,0 +1,10 @@
+#!/bin/sh
+'''exec' "/Users/anishsuman/Documents/Cohort Project/pixel-perfect-clone-kit-23-main/backend/internship_project_2/venv/bin/python3" "$0" "$@"
+' '''
+# -*- coding: utf-8 -*-
+import re
+import sys
+from gunicorn.app.wsgiapp import run
+if __name__ == '__main__':
+    sys.argv[0] = re.sub(r'(-script\.pyw|\.exe)?$', '', sys.argv[0])
+    sys.exit(run())
