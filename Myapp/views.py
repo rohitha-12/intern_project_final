@@ -5,7 +5,7 @@ from django.views import View
 from django.shortcuts import render, redirect
 from django.core.mail import send_mail
 from django.conf import settings
-from .models import COIFormData, CustomUser, CompanyEmail,StripePayment
+from .models import COIFormData, CustomUser, CompanyEmail, Meeting,StripePayment
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from django.http import HttpResponse
@@ -1956,3 +1956,28 @@ def set_webinar_form_filled_by_email(request):
             'success': False,
             'message': f'Error updating webinar form status: {str(e)}'
         }, status=500)
+    
+def create_meeting(request):
+    """Simple function-based view to create a meeting"""
+    try:
+        data = json.loads(request.body)
+        
+        meeting = Meeting.objects.create(
+            user=request.user,
+            date=datetime.strptime(data['date'], '%Y-%m-%d').date(),
+            time=datetime.strptime(data['time'], '%H:%M').time(),
+            duration=data['duration'],
+            timezone=data['timezone']
+        )
+        
+        return JsonResponse({
+            'success': True,
+            'meeting_id': meeting.id,
+            'message': 'Meeting scheduled successfully'
+        })
+        
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'error': str(e)
+        }, status=400)

@@ -68,7 +68,7 @@ class CustomUserManager(BaseUserManager):
 class CustomUser(AbstractBaseUser, PermissionsMixin):
     full_name = models.CharField(max_length=100)
     username = models.CharField(max_length=50)
-    email = models.EmailField(unique=True)
+    email = models.EmailField(unique=True)``
     phone_number = models.CharField(max_length=15)
     linkedin_url = models.URLField(blank=True, null=True)
     linkedin_verified = models.BooleanField(default=False)
@@ -251,3 +251,39 @@ class AdminProfile(models.Model):
         return f"{self.display_name} ({self.user.email})"
 
 
+class Meeting(models.Model):
+    DURATION_CHOICES = [
+        (15, '15 minutes'),
+        (30, '30 minutes'),
+        (45, '45 minutes'),
+        (60, '60 minutes'),
+    ]
+    
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='meetings')
+    date = models.DateField()
+    time = models.TimeField()
+    duration = models.IntegerField(choices=DURATION_CHOICES, default=30)
+    timezone = models.CharField(max_length=50, default='UTC')
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        db_table = 'meetings'
+        ordering = ['date', 'time']
+        unique_together = ('date', 'time', 'user')  # Prevent double booking
+    
+    def __str__(self):
+        return f"{self.user.email} - {self.date} {self.time} ({self.duration}min)"
+    
+    def clean(self):
+        # Validate that the meeting is not in the past
+        if self.date and self.time:
+            meeting_datetime = timezone.datetime.combine(self.date, self.time)
+            if meeting_datetime < timezone.now():
+                raise ValidationError("Cannot schedule meetings in the past.")
+    
+    @property
+    def end_time(self):
+        """Calculate end time based on start time and duration"""
+        start_datetime = timezone.datetime.combine(self.date, self.time)
+        end_datetime = start_datetime + timezone.timedelta(minutes=self.duration)
+        return end_datetime.time()
