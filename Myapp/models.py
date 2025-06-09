@@ -68,7 +68,7 @@ class CustomUserManager(BaseUserManager):
 class CustomUser(AbstractBaseUser, PermissionsMixin):
     full_name = models.CharField(max_length=100)
     username = models.CharField(max_length=50)
-    email = models.EmailField(unique=True)``
+    email = models.EmailField(unique=True)
     phone_number = models.CharField(max_length=15)
     linkedin_url = models.URLField(blank=True, null=True)
     linkedin_verified = models.BooleanField(default=False)
