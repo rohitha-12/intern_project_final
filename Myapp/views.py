@@ -41,13 +41,13 @@ from .utils import fetch_public_vimeo_video, fetch_unlisted_vimeo_video
 # LinkedIn API configuration (unchanged)
 LINKEDIN_CLIENT_ID = '86ym363ssaf6tz'
 LINKEDIN_CLIENT_SECRET = 'WPL_AP1.P9uxAiGWy4DjSRYh.WIbjkw=='
-LINKEDIN_REDIRECT_URI = 'http://127.0.0.1:8000/Myapp/linkedin-callback'
+LINKEDIN_REDIRECT_URI = 'https://intern-project-final-1.onrender.com/linkedin/callback'
 LINKEDIN_AUTH_URL = "https://www.linkedin.com/oauth/v2/authorization"
 LINKEDIN_TOKEN_URL = "https://www.linkedin.com/oauth/v2/accessToken"
 LINKEDIN_PROFILE_URL = "https://api.linkedin.com/v2/me"
 
 # Default redirect URL - fallback if setting is not defined
-DEFAULT_REDIRECT_URL = getattr(settings, 'DEFAULT_REDIRECT_URL', '/')
+DEFAULT_REDIRECT_URL = 'https://intern-project-final-1.onrender.com/linkedin/callback'
 stripe.api_key = 'sk_test_51RPvxVGq7lR7zc6NS93Kbg2HGhe1rK273sM4CIV7YcM44mcYOoQfprlLh3xbxsXbXxVRdAAhWEPnSrf9jPyQcZus00GzpVgzwB'
 # Secret key for JWT
 token_secret = settings.SECRET_KEY
