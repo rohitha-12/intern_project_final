@@ -1,9 +1,11 @@
 from django.contrib import admin
-from .models import CustomUser, EmailOTP, CompanyEmail, StripePayment
+from .models import CustomUser, EmailOTP, CompanyEmail, StripePayment, Message, ChatRoom
 
 admin.site.register(CustomUser)
 admin.site.register(EmailOTP)
 admin.site.register(CompanyEmail)
+admin.site.register(Message)
+admin.site.register(ChatRoom)
 
 # Register your models here.
 

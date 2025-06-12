@@ -23,7 +23,7 @@ from drf_yasg import openapi
 schema_view = get_schema_view(
    openapi.Info(title="Settings API", default_version='v1'),
    public=True,
-   permission_classes=(permissions.AllowAny,),
+   permission_classes=[permissions.AllowAny],
 )
 
 urlpatterns = [

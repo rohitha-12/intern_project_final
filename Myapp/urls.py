@@ -1,4 +1,6 @@
 from django.urls import path, include
+
+from Myapp import linkedin_auth
 from . import views
 from rest_framework_simplejwt.views import (
     TokenObtainPairView,
@@ -22,8 +24,9 @@ urlpatterns = [
     path('verify_email_otp/', views.verify_email_otp, name='verify_email_otp'),
     
     # LinkedIn OAuth paths
-    path('linkedin-auth/', LinkedInAuthView.as_view(), name='linkedin_auth'),
-    path('linkedin-callback/', LinkedInCallbackView.as_view(), name='linkedin_callback'),
+    path('auth/linkedin/', linkedin_auth.LinkedInAuthView.as_view(), name='linkedin_auth'),
+    path('auth/linkedin/callback/', linkedin_auth.LinkedInCallbackView.as_view(), name='linkedin_callback'),
+    path('auth/linkedin/verify/', linkedin_auth.LinkedInVerifyTokenView.as_view(), name='linkedin_verify'),
 
     #chat
     path('chat/<str:room_name>/', views.room, name='room'),

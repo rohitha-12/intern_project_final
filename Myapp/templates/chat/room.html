@@ -1,4 +1,46 @@
-<div id="chat-window"> 
+<html>
+<head>
+  <title>AI Chatbox</title>
+  <style>
+    body {
+      font-family: Arial;
+      background: #f4f4f4;
+    }
+    #chatbox {
+      width: auto;
+      margin: 50px auto;
+      border: 1px solid #ccc;
+      background: white;
+      padding: 15px;
+      border-radius: 10px;
+      height: 400px;
+      overflow-y: auto;
+    }
+    .message {
+      margin: 10px 0;
+    }
+    .user {
+      text-align: right;
+      color: blue;
+    }
+    .ai {
+      text-align: left;
+      color: green;
+    }
+    #inputArea {
+      margin-top: 10px;
+      text-align: center;
+    }
+    #userInput {
+      padding: 8px;
+      width: 90%;
+      border-radius: 5px;
+      border: 1px solid #ccc;
+    }
+  </style>
+</head>
+<body>
+<div id="chatbox">
     <div id="messages" style="height:300px; overflow-y:auto; border:1px solid #ccc; padding:10px;"></div>
     <input id="messageInput" placeholder="Type a message...">
     <button onclick="sendMessage()">Send</button>
@@ -6,34 +48,57 @@
 
 <script>
     const username = "{{ username }}";  // from context passed by view
-    const chatSocket = new WebSocket(
-    (window.location.protocol === 'https:' ? 'wss://' : 'ws://') + window.location.host + '/ws/chat/{{ room_name }}/'
-);
+    const token = localStorage.getItem("access_token");
+  const chatSocket = new WebSocket(
+    `${window.location.protocol === 'https:' ? 'wss://' : 'ws://'}${window.location.host}/ws/chat/{{ room_name }}/?token=${token}`
+  );
 
 
     chatSocket.onmessage = function(e) {
         const data = JSON.parse(e.data);
         const messageContainer = document.getElementById('messages');
-        const msg = `
-            <p>
-                <strong>${data.username}</strong> 
-                <small style="color:gray;">[${data.timestamp}]</small>: 
-                ${data.message}
-            </p>`;
-        messageContainer.innerHTML += msg;
-        messageContainer.scrollTop = messageContainer.scrollHeight; // Auto-scroll
+
+        if (data.type === 'chat_message') {
+            const msgData = data.message;
+            const senderName = msgData.sender || 'Anonymous';
+            const timestamp = msgData.timestamp || new Date().toLocaleTimeString();
+            const content = msgData.content || '';
+
+            const msg = `
+                <p>
+                    <strong>${senderName}</strong>
+                    <small style="color:gray;">[${timestamp}]</small>:
+                    ${content}
+                </p>`;
+
+            messageContainer.innerHTML += msg;
+            messageContainer.scrollTop = messageContainer.scrollHeight; // Auto-scroll
+        }
     };
 
     function sendMessage() {
         const messageInputDom = document.getElementById('messageInput');
         const message = messageInputDom.value.trim();
+        const messageContainer = document.getElementById('messages');
+
         if (!message) return;
 
-        chatSocket.send(JSON.stringify({
-            'username': username,
-            'message': message
-        }));
-        messageInputDom.value = '';
+        if (chatSocket.readyState === WebSocket.OPEN) {
+            chatSocket.send(JSON.stringify({
+                'type': 'chat_message',
+                'message': message
+            }));
+            messageInputDom.value = '';
+        } else {
+            // Append error to chatbox instead of using alert
+            const errorMsg = `
+                <p style="color: red;">
+                    <strong>System</strong> <small style="color:gray;">[${new Date().toLocaleTimeString()}]</small>:
+                    Connection to server is lost. Please refresh the page.
+                </p>`;
+            messageContainer.innerHTML += errorMsg;
+            messageContainer.scrollTop = messageContainer.scrollHeight;
+        }
     }
 
     // Send message on Enter key press
@@ -49,6 +114,8 @@
         <li><a href="../logout">Logout</a></li>
     </ul>
 </div>
+</body>
+</html>
 
 
 

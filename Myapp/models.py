@@ -221,19 +221,22 @@ class COIFormData(models.Model):
 
 class ChatRoom(models.Model):
     name = models.CharField(max_length=100, unique=True)
+    is_ai_chat = models.BooleanField(default=False)
 
     def __str__(self):
         return self.name
 
 class Message(models.Model):
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    sender = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     room = models.ForeignKey(ChatRoom, on_delete=models.CASCADE)
     content = models.TextField()
+    message_type = models.CharField(max_length=20, default='text')
     timestamp = models.DateTimeField(auto_now_add=True)
+    reply_to = models.ForeignKey('self', null=True, blank=True, on_delete=models.SET_NULL)
     is_pinned = models.BooleanField(default=False)
 
     def __str__(self):
-        return f"{self.user.username}: {self.content[:30]}"
+        return f"{self.sender.username}: {self.content[:30]}"
 
 class UserMembership(models.Model):
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
@@ -287,3 +290,31 @@ class Meeting(models.Model):
         start_datetime = timezone.datetime.combine(self.date, self.time)
         end_datetime = start_datetime + timezone.timedelta(minutes=self.duration)
         return end_datetime.time()
+
+
+class Poll(models.Model):
+    message = models.OneToOneField(Message, on_delete=models.CASCADE)
+    question = models.TextField()
+    allow_multiple_answers = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def _str_(self):
+        return self.question[:50]
+
+
+class PollOption(models.Model):
+    poll = models.ForeignKey(Poll, on_delete=models.CASCADE, related_name='options')
+    text = models.CharField(max_length=200)
+    votes = models.IntegerField(default=0)
+
+    def _str_(self):
+        return self.text
+
+
+class PollVote(models.Model):
+    poll_option = models.ForeignKey(PollOption, on_delete=models.CASCADE)
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    voted_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ['poll_option', 'user']

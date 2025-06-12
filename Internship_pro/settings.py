@@ -27,7 +27,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = 'django-insecure-$01^%&&y5)g#=4-!4v@$y8)6%t%jt=fos23c9)#7bd+m)0+8(x'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = False
+DEBUG = True
 
 ALLOWED_HOSTS = ['*']
 
@@ -201,9 +201,6 @@ VIMEO_ACCESS_TOKEN = config('VIMEO_ACCESS_TOKEN')
 ASGI_APPLICATION = 'Internship_pro.asgi.application'
 CHANNEL_LAYERS = {
     "default": {
-        "BACKEND": "channels_redis.core.RedisChannelLayer",
-        "CONFIG": {
-            "hosts": [("127.0.0.1", 6379)],
-        },
+        "BACKEND": "channels.layers.InMemoryChannelLayer",
     },
 }
