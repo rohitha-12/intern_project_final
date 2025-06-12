@@ -264,7 +264,14 @@ class ChatConsumer(AsyncWebsocketConsumer):
     @database_sync_to_async
     def save_message(self, content, message_type, reply_to_id=None):
         room = self.get_or_create_room_sync()
-        reply = Message.objects.filter(id=reply_to_id).first() if reply_to_id else None
+        reply = None
+        
+        if reply_to_id:
+            try:
+                reply = Message.objects.get(id=reply_to_id)
+            except Message.DoesNotExist:
+                print(f"Reply message with id {reply_to_id} not found")
+                reply = None
 
         message = Message.objects.create(
             room=room,
@@ -301,17 +308,27 @@ class ChatConsumer(AsyncWebsocketConsumer):
         elif hasattr(msg.sender, 'full_name') and msg.sender.full_name:
             sender_name = msg.sender.full_name
 
+        # Handle reply_to safely
+        reply_to_data = None
+        if msg.reply_to:
+            try:
+                reply_sender = msg.reply_to.sender.get_full_name() if hasattr(msg.reply_to.sender, 'get_full_name') and msg.reply_to.sender.get_full_name() else msg.reply_to.sender.username
+                reply_to_data = {
+                    'id': msg.reply_to.id,
+                    'sender': reply_sender,
+                    'content': msg.reply_to.content[:50] + ('...' if len(msg.reply_to.content) > 50 else '')
+                }
+            except Exception as e:
+                print(f"Error formatting reply_to: {e}")
+                reply_to_data = None
+
         return {
             'id': msg.id,
             'sender': sender_name,
             'content': msg.content,
-            'timestamp': msg.timestamp.isoformat(),  # Use ISO format for consistency
+            'timestamp': msg.timestamp.isoformat(),
             'is_pinned': getattr(msg, 'is_pinned', False),
-            'reply_to': {
-                'id': msg.reply_to.id,
-                'sender': msg.reply_to.sender.get_full_name() or msg.reply_to.sender.username,
-                'content': msg.reply_to.content[:50] + ('...' if len(msg.reply_to.content) > 50 else '')
-            } if msg.reply_to else None
+            'reply_to': reply_to_data
         }
 
     @database_sync_to_async
@@ -411,7 +428,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
     @database_sync_to_async
     def pin_message(self, message_id):
         try:
-            msg = Message.objects.get(id=message_id)
+            msg = Message.objects.select_related('sender', 'reply_to').get(id=message_id)
             msg.is_pinned = True
             msg.save()
             print(f"Database: Message {message_id} pinned successfully")
