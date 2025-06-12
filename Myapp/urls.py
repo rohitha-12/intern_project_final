@@ -70,4 +70,8 @@ urlpatterns = [
     path('process-payment/', views.ProcessPaymentView.as_view(), name='process-payment'),
     path('confirm-payment/', views.ConfirmPaymentView.as_view(), name='confirm-payment'),
     path('process-tokenized-payment/', views.ProcessTokenizedPaymentView.as_view(), name='process-tokenized-payment'),
+    path('create-checkout-session/', views.CreateCheckoutSessionView.as_view(), name='create_checkout_session'),
+    path('stripe-webhook/', views.StripeWebhookView.as_view(), name='stripe_webhook'),
+    path('payment-status/', views.PaymentStatusView.as_view(), name='payment_status'),
+    path('user-payments/', views.UserPaymentsView.as_view(), name='user_payments'),
 ]
