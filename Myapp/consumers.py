@@ -75,8 +75,13 @@ class ChatConsumer(AsyncWebsocketConsumer):
         try:
             data = json.loads(text_data)
             message_type = data.get('type')
-            print(f"Received message type: {message_type}")  # Debug log
-
+            print(f"Received message type: {message_type}")
+            
+            # Handle ping/pong for connection keep-alive
+            if message_type == 'ping':
+                await self.send(text_data=json.dumps({'type': 'pong'}))
+                return
+                
             if message_type == 'chat_message':
                 await self.handle_chat_message(data)
             elif message_type == 'poll_create':
@@ -163,18 +168,30 @@ class ChatConsumer(AsyncWebsocketConsumer):
             await self.send_message(type='error', message=result['error'])
 
     async def handle_pin_message(self, data):
+        print(f"Handling pin message: {data}")  # Debug log
+        
         if not self.user.is_staff:
+            print(f"User {self.user.username} is not staff, cannot pin message")
             return await self.send_message(type='error', message='Only admins can pin messages')
 
-        message = await self.pin_message(data['message_id'])
+        message_id = data.get('message_id')
+        if not message_id:
+            return await self.send_message(type='error', message='Message ID required')
+            
+        message = await self.pin_message(message_id)
         if message:
+            print(f"Message {message_id} pinned successfully")
+            formatted_message = await self.format_message(message)
             await self.channel_layer.group_send(
                 self.room_group_name,
                 {
                     'type': 'message_pinned',
-                    'message': await self.format_message(message)
+                    'message': formatted_message
                 }
             )
+        else:
+            print(f"Failed to pin message {message_id}")
+            await self.send_message(type='error', message='Message not found')
 
     async def handle_search_messages(self, data):
         results = await self.search_messages(data['query'])
@@ -393,11 +410,18 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
     @database_sync_to_async
     def pin_message(self, message_id):
-        msg = Message.objects.filter(id=message_id).first()
-        if msg:
+        try:
+            msg = Message.objects.get(id=message_id)
             msg.is_pinned = True
             msg.save()
-        return msg
+            print(f"Database: Message {message_id} pinned successfully")
+            return msg
+        except Message.DoesNotExist:
+            print(f"Database: Message {message_id} not found")
+            return None
+        except Exception as e:
+            print(f"Database error pinning message: {e}")
+            return None
 
     @database_sync_to_async
     def search_messages(self, query):
