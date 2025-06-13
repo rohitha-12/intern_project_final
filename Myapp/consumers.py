@@ -417,12 +417,12 @@ class ChatConsumer(AsyncWebsocketConsumer):
         from django.db import transaction
         with transaction.atomic():
             opts = []
-            for o in poll.polloption_set.all():  # Changed from poll.options.all()
-                voters = list(o.pollvote_set.values_list('user__username', flat=True))
+            for o in poll.options.all():  # Changed from poll.options.all()
+                voters = list(o.votes.values_list('user__username', flat=True))
                 opts.append({
                     'id': o.id,
                     'text': o.text,
-                    'votes': o.pollvote_set.count(),  # Count votes directly
+                    'votes': o.votes.count(),  # Count votes directly
                     'voters': voters,
                     'user_voted': self.user.username in voters
                 })
