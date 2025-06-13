@@ -185,10 +185,10 @@ STRIPE_SECRET_KEY = os.getenv('STRIPE_SECRET_KEY', 'NOT SET')
 STRIPE_WEBHOOK_SECRET = os.getenv('STRIPE_WEBHOOK_SECRET', 'NOT SET')
 
 # Frontend URL for redirects
-FRONTEND_URL = config('FRONTEND_URL', default='http://localhost:8080')
+FRONTEND_URL = 'https://prspera.com'
 
 # Domain URL for webhooks
-DOMAIN_URL = config('DOMAIN_URL', default='http://localhost:8000')
+DOMAIN_URL = 'https://prspera.com'
 
 # Email settings (if not already configured)
 DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='noreply@yoursite.com')
