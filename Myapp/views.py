@@ -1072,8 +1072,8 @@ class CreateCheckoutSessionView(APIView):
                     'quantity': 1,
                 }],
                 mode='payment',
-                success_url=f"{getattr(settings, 'FRONTEND_URL', 'http://localhost:3000')}/payment-success?session_id={{CHECKOUT_SESSION_ID}}",
-                cancel_url=f"{getattr(settings, 'FRONTEND_URL', 'http://localhost:3000')}/payment-cancelled",
+                success_url=f"https://prspera.com/payment-success?session_id={{CHECKOUT_SESSION_ID}}",
+                cancel_url=f"https://prspera.com/payment-cancelled",
                 metadata={
                     'user_id': str(request.user.id),
                     'user_email': request.user.email,

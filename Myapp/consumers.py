@@ -137,21 +137,30 @@ class ChatConsumer(AsyncWebsocketConsumer):
             await self.send_ai_response(message)
 
     async def handle_poll_create(self, data):
+        print(f"Creating poll with data: {data}")  # Debug log
+        
         # Comment out for testing
         # profile = await self.get_user_profile(self.user)
         # if not profile.paid:
         #     return await self.send_message(type='error', message='Premium membership required to create polls')
 
-        message = await self.save_message(data['question'], 'poll')
-        poll = await self.create_poll(message, data['question'], data.get('allow_multiple_answers', False),
-                                      data['options'])
-        await self.channel_layer.group_send(
-            self.room_group_name,
-            {
-                'type': 'poll_message',
-                'poll': await self.format_poll(poll)
-            }
-        )
+        try:
+            message = await self.save_message(data['question'], 'poll')
+            poll = await self.create_poll(message, data['question'], data.get('allow_multiple_answers', False),
+                                        data['options'])
+            poll_data = await self.format_poll(poll)
+            print(f"Poll created successfully: {poll_data}")  # Debug log
+            
+            await self.channel_layer.group_send(
+                self.room_group_name,
+                {
+                    'type': 'poll_message',
+                    'poll': poll_data
+                }
+            )
+        except Exception as e:
+            print(f"Error creating poll: {e}")
+            await self.send_message(type='error', message=f'Failed to create poll: {str(e)}')
 
     async def handle_poll_vote(self, data):
         result = await self.vote_on_poll(data['option_id'], data['poll_id'])
@@ -405,25 +414,30 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
     @database_sync_to_async
     def format_poll(self, poll):
-        opts = []
-        for o in poll.options.all():
-            voters = list(o.pollvote_set.values_list('user__username', flat=True))
-            opts.append({
-                'id': o.id,
-                'text': o.text,
-                'votes': o.votes,
-                'voters': voters,
-                'user_voted': self.user.username in voters
-            })
-        return {
-            'id': poll.id,
-            'message_id': poll.message.id,
-            'question': poll.question,
-            'options': opts,
-            'allow_multiple_answers': poll.allow_multiple_answers,
-            'total_votes': sum(o['votes'] for o in opts),
-            'created_by': poll.message.sender.get_full_name() or poll.message.sender.username
-        }
+        from django.db import transaction
+        with transaction.atomic():
+            opts = []
+            for o in poll.polloption_set.all():  # Changed from poll.options.all()
+                voters = list(o.pollvote_set.values_list('user__username', flat=True))
+                opts.append({
+                    'id': o.id,
+                    'text': o.text,
+                    'votes': o.pollvote_set.count(),  # Count votes directly
+                    'voters': voters,
+                    'user_voted': self.user.username in voters
+                })
+            
+            sender_name = poll.message.sender.get_full_name() if hasattr(poll.message.sender, 'get_full_name') and poll.message.sender.get_full_name() else poll.message.sender.username
+            
+            return {
+                'id': poll.id,
+                'message_id': poll.message.id,
+                'question': poll.question,
+                'options': opts,
+                'allow_multiple_answers': poll.allow_multiple_answers,
+                'total_votes': sum(o['votes'] for o in opts),
+                'created_by': sender_name
+            }
 
     @database_sync_to_async
     def pin_message(self, message_id):
