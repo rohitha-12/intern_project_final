@@ -187,20 +187,26 @@ class ChatConsumer(AsyncWebsocketConsumer):
         if not message_id:
             return await self.send_message(type='error', message='Message ID required')
             
-        message = await self.pin_message(message_id)
-        if message:
-            print(f"Message {message_id} pinned successfully")
-            formatted_message = await self.format_message(message)
-            await self.channel_layer.group_send(
-                self.room_group_name,
-                {
-                    'type': 'message_pinned',
-                    'message': formatted_message
-                }
-            )
-        else:
-            print(f"Failed to pin message {message_id}")
-            await self.send_message(type='error', message='Message not found')
+        try:
+            message = await self.pin_message(message_id)
+            if message:
+                print(f"Message {message_id} pinned successfully")
+                formatted_message = await self.format_message(message)
+                await self.channel_layer.group_send(
+                    self.room_group_name,
+                    {
+                        'type': 'message_pinned',
+                        'message': formatted_message
+                    }
+                )
+                # Also send success confirmation to the user who pinned
+                await self.send_message(type='success', message='Message pinned successfully')
+            else:
+                print(f"Failed to pin message {message_id}")
+                await self.send_message(type='error', message='Message not found')
+        except Exception as e:
+            print(f"Error in handle_pin_message: {e}")
+            await self.send_message(type='error', message='Failed to pin message')
 
     async def handle_search_messages(self, data):
         results = await self.search_messages(data['query'])
@@ -376,6 +382,15 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 'message': formatted_msg,
                 'is_history': True
             }))
+        
+        # Send pinned messages separately
+        pinned_msgs = await self.get_pinned_messages()
+        for m in pinned_msgs:
+            formatted_msg = await self.format_message(m)
+            await self.send(text_data=json.dumps({
+                'type': 'message_pinned',
+                'message': formatted_msg
+            }))
 
     # Additional helper methods for polls, etc.
     @database_sync_to_async
@@ -455,17 +470,34 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 'total_votes': sum(o['votes'] for o in opts),
                 'created_by': sender_name
             }
+    @database_sync_to_async
+    def get_pinned_messages(self):
+        room = self.get_or_create_room_sync()
+        return list(Message.objects.filter(
+            room=room, 
+            is_pinned=True
+        ).select_related('sender', 'reply_to').order_by('-timestamp'))
 
     @database_sync_to_async
     def pin_message(self, message_id):
         try:
-            msg = Message.objects.select_related('sender', 'reply_to').get(id=message_id)
-            msg.is_pinned = True
-            msg.save()
-            print(f"Database: Message {message_id} pinned successfully")
+            # Get the room for this consumer
+            room = self.get_or_create_room_sync()
+            
+            # Find the message in the current room
+            msg = Message.objects.select_related('sender', 'reply_to').get(
+                id=message_id, 
+                room=room  # Make sure message belongs to current room
+            )
+            
+            # Toggle pin status
+            msg.is_pinned = not msg.is_pinned
+            msg.save(update_fields=['is_pinned'])
+            
+            print(f"Database: Message {message_id} pin status changed to {msg.is_pinned}")
             return msg
         except Message.DoesNotExist:
-            print(f"Database: Message {message_id} not found")
+            print(f"Database: Message {message_id} not found in room {room.name}")
             return None
         except Exception as e:
             print(f"Database error pinning message: {e}")
