@@ -92,6 +92,8 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 await self.handle_pin_message(data)
             elif message_type == 'search_messages':
                 await self.handle_search_messages(data)
+            elif message_type == 'delete_message':
+                await self.handle_delete_message(data)
             else:
                 print(f"Unknown message type: {message_type}")
 
@@ -135,6 +137,67 @@ class ChatConsumer(AsyncWebsocketConsumer):
         room = await self.get_or_create_room()
         if room.is_ai_chat:
             await self.send_ai_response(message)
+    
+    async def handle_delete_message(self, data):
+        print(f"Handling delete message: {data}")  # Debug log
+        
+        if not self.user.is_staff:
+            print(f"User {self.user.username} is not staff, cannot delete message")
+            return await self.send_message(type='error', message='Only admins can delete messages')
+
+        message_id = data.get('message_id')
+        if not message_id:
+            return await self.send_message(type='error', message='Message ID required')
+            
+        try:
+            success = await self.delete_message(message_id)
+            if success:
+                print(f"Message {message_id} deleted successfully")
+                await self.channel_layer.group_send(
+                    self.room_group_name,
+                    {
+                        'type': 'message_deleted',
+                        'message_id': message_id
+                    }
+                )
+                # Send success confirmation to the user who deleted
+                await self.send_message(type='success', message='Message deleted successfully')
+            else:
+                print(f"Failed to delete message {message_id}")
+                await self.send_message(type='error', message='Message not found')
+        except Exception as e:
+            print(f"Error in handle_delete_message: {e}")
+            await self.send_message(type='error', message='Failed to delete message')
+
+    async def message_deleted(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'message_deleted',
+            'message_id': event['message_id']
+        }))
+
+    @database_sync_to_async
+    def delete_message(self, message_id):
+        try:
+            # Get the room for this consumer
+            room = self.get_or_create_room_sync()
+            
+            # Find the message in the current room
+            msg = Message.objects.get(
+                id=message_id, 
+                room=room  # Make sure message belongs to current room
+            )
+            
+            # Delete the message
+            msg.delete()
+            
+            print(f"Database: Message {message_id} deleted successfully")
+            return True
+        except Message.DoesNotExist:
+            print(f"Database: Message {message_id} not found in room {room.name}")
+            return False
+        except Exception as e:
+            print(f"Database error deleting message: {e}")
+            return False
 
     async def handle_poll_create(self, data):
         print(f"Creating poll with data: {data}")  # Debug log
