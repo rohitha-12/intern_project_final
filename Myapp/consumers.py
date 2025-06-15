@@ -396,16 +396,26 @@ class ChatConsumer(AsyncWebsocketConsumer):
         except PollOption.DoesNotExist:
             return {'success': False, 'error': 'Option not found'}
 
-        existing = PollVote.objects.filter(poll_option__poll=option.poll, user=self.user)
-        if not option.poll.allow_multiple_answers and existing.exists():
-            existing.delete()
+        # Check existing votes for this user on this poll
+        existing_votes = PollVote.objects.filter(
+            poll_option__poll=option.poll, 
+            user=self.user
+        )
+        
+        if not option.poll.allow_multiple_answers and existing_votes.exists():
+            # Remove existing vote if not allowing multiple answers
+            existing_votes.delete()
 
-        vote, created = PollVote.objects.get_or_create(poll_option=option, user=self.user)
+        # Toggle vote for this specific option
+        vote, created = PollVote.objects.get_or_create(
+            poll_option=option, 
+            user=self.user
+        )
+        
         if not created:
+            # User already voted for this option, remove the vote
             vote.delete()
 
-        option.votes = option.pollvote_set.count()
-        option.save()
         return {'success': True}
 
     @database_sync_to_async
@@ -417,12 +427,19 @@ class ChatConsumer(AsyncWebsocketConsumer):
         from django.db import transaction
         with transaction.atomic():
             opts = []
-            for o in poll.polloption_set.all():  # Changed from poll.options.all()
-                voters = list(o.pollvote_set.values_list('user__username', flat=True))
+            # Use the explicit model reference instead of reverse relation
+            poll_options = PollOption.objects.filter(poll=poll)
+            
+            for o in poll_options:
+                # Get votes for this option
+                votes_for_option = PollVote.objects.filter(poll_option=o)
+                vote_count = votes_for_option.count()
+                voters = list(votes_for_option.values_list('user__username', flat=True))
+                
                 opts.append({
                     'id': o.id,
                     'text': o.text,
-                    'votes': o.pollvote_set.count(),  # Count votes directly
+                    'votes': vote_count,
                     'voters': voters,
                     'user_voted': self.user.username in voters
                 })
